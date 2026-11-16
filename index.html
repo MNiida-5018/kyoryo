@@ -1,0 +1,1527 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="light">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>橋梁点検ビューア</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="橋梁点検">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#ffffff">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<script src="local-caps.js"></script>
+<script src="lib/pdf.min.js"></script>
+<script src="parser.js"></script>
+<script src="dxf.js"></script>
+<style>
+  :root{
+    color-scheme: light;
+    --ink:#1d2329; --muted:#66707a; --line:#d9dee3; --bg:#eef1f4; --paper:#fff;
+    --accent:#0a66d8; --accent-soft:rgba(10,102,216,.14); --hit:rgba(10,102,216,.10);
+    --hl:#ff7a00; --red:#e0201b; --orig:#c2187a;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;overscroll-behavior:none;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",sans-serif;
+    -webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+  input,textarea,select{-webkit-user-select:text;user-select:text}
+  button{font:inherit;color:inherit}
+  .hidden{display:none!important}
+  .app{display:flex;flex-direction:column;position:fixed;inset:0}
+
+  header{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--paper);
+    border-bottom:1px solid var(--line);flex:0 0 auto;min-height:52px}
+  .brand{font-weight:700;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .brand small{font-weight:500;color:var(--muted);font-size:12px;margin-left:6px}
+  .sync{font-size:12px;color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:5px}
+  .sync i{width:8px;height:8px;border-radius:50%;background:#aab3bb;display:inline-block}
+  .sync.ok i{background:#22a35a}.sync.wait i{background:#f0a400}.sync.local i{background:#8a63d2}.sync.err i{background:var(--red)}
+  .nav{display:flex;align-items:center;gap:6px;margin-left:auto}
+  .btn{border:1px solid var(--line);background:var(--paper);border-radius:9px;height:38px;min-width:38px;
+    padding:0 12px;font-size:15px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;white-space:nowrap}
+  .btn:active{background:#e6ebf0}
+  .btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .btn.primary:disabled{opacity:.45}
+  .btn.danger{color:var(--red);border-color:#f0c4c2}
+  .pageBtn{min-width:200px;justify-content:space-between;font-weight:600}
+  .pageBtn .sub{color:var(--muted);font-weight:500;font-size:13px}
+
+  /* ---------- home ---------- */
+  #home main{flex:1;overflow:auto;padding:20px}
+  .wrap{max-width:980px;margin:0 auto}
+  .homehead{display:flex;align-items:flex-end;gap:12px;margin-bottom:14px}
+  .homehead h1{font-size:22px;margin:0}
+  .homehead p{margin:4px 0 0;color:var(--muted);font-size:13.5px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+  .bcard{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:14px 14px 12px;cursor:pointer;position:relative}
+  .bcard:active{background:#f6f8fa}
+  .bcard h3{margin:0 0 4px;font-size:18px}
+  .bcard .meta{color:var(--muted);font-size:13px;line-height:1.6}
+  .tag{display:inline-block;font-size:11.5px;font-weight:700;border-radius:5px;padding:1px 7px;background:#e8f0fb;color:var(--accent);margin-right:6px}
+  .bcard .more{position:absolute;top:8px;right:8px;width:34px;height:34px;border:0;background:none;border-radius:8px;font-size:18px;color:var(--muted);cursor:pointer}
+  .empty{background:var(--paper);border:1.5px dashed #c5cdd4;border-radius:14px;padding:30px;text-align:center;color:var(--muted)}
+  .notice{background:#fff8e6;border:1px solid #f3dca0;color:#7a5a00;border-radius:10px;padding:10px 12px;font-size:13.5px;margin-bottom:14px}
+
+  /* ---------- viewer ---------- */
+  .pop{position:absolute;background:var(--paper);border:1px solid var(--line);border-radius:14px;
+    box-shadow:0 12px 40px rgba(0,0,0,.18);padding:8px;z-index:30;display:none}
+  .pop.open{display:block}
+  #menu{top:56px;right:12px;width:min(420px,calc(100vw - 24px));max-height:calc(100% - 70px);overflow:auto}
+  #expMenu{top:56px;right:12px;width:340px}
+  .mgrp{padding:6px 8px 2px;color:var(--muted);font-size:12px;font-weight:700;letter-spacing:.05em}
+  .mitem{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;border:0;background:none;
+    padding:11px 10px;border-radius:9px;font-size:15px;cursor:pointer;gap:10px}
+  .mitem:active,.mitem.cur{background:var(--accent-soft)}
+  .mitem span{color:var(--muted);font-size:13px;white-space:nowrap}
+  .mitem .pen{color:var(--red);font-weight:600}
+
+  #view{position:relative;flex:1 1 auto;overflow:hidden;touch-action:none;background:var(--bg)}
+  #stage{position:absolute;left:0;top:0;transform-origin:0 0;background:var(--paper);box-shadow:0 2px 14px rgba(0,0,0,.12)}
+  #stage canvas{position:absolute;pointer-events:none}
+  #ov{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+  #ov .mk-flag,#ov .mk-text{pointer-events:visiblePainted}
+  #ov.erase .mk{pointer-events:visiblePainted}
+  #ov .hit{stroke:transparent;fill:none}
+  #ov .sel .lbl-bg{stroke:var(--hl);stroke-width:.8}
+  .spot{position:absolute;border-radius:2px;cursor:pointer}
+  .spot.num{background:var(--hit);outline:1px solid rgba(10,102,216,.35)}
+  .spot.num.has{outline-color:var(--orig)}
+  .hidehits .spot.num{background:transparent;outline:none}
+  .spot.active{background:rgba(255,122,0,.18)!important;outline:1.5px solid var(--hl)!important}
+  .spot.num.manual{outline:1.5px dashed #16a34a;background:rgba(22,163,74,.12)}
+  .linktool .spot{background:rgba(22,163,74,.10)!important;outline:1px solid rgba(22,163,74,.6)!important}
+  .origtool .spot.num{background:rgba(194,24,122,.12);outline:1px solid rgba(194,24,122,.5)}
+  .loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:15px;pointer-events:none}
+
+  .hint{position:absolute;left:84px;bottom:12px;background:rgba(29,35,41,.8);color:#fff;font-size:13px;
+    padding:7px 11px;border-radius:9px;pointer-events:none;transition:opacity .4s;max-width:calc(100% - 100px)}
+
+  #tools{position:absolute;left:10px;top:10px;z-index:15;background:var(--paper);border-radius:14px;
+    box-shadow:0 6px 24px rgba(0,0,0,.16),0 0 0 1px rgba(0,0,0,.05);padding:6px;display:flex;flex-direction:column;gap:3px;width:62px;
+    max-height:calc(100% - 20px);overflow:auto}
+  .tool{width:50px;height:46px;border:0;border-radius:10px;background:none;cursor:pointer;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:1px;font-size:10.5px;color:var(--muted);flex:0 0 auto}
+  .tool svg{width:22px;height:22px;stroke:var(--ink);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  .tool.on{background:var(--accent-soft);color:var(--accent)}
+  .tool.on svg{stroke:var(--accent)}
+  .tool:disabled{opacity:.35}
+  .tsep{height:1px;background:var(--line);margin:3px 4px;flex:0 0 auto}
+  .swatches{display:flex;flex-direction:column;align-items:center;gap:6px;padding:4px 0}
+  .sw{width:26px;height:26px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px var(--line);cursor:pointer;flex:0 0 auto}
+  .sw.on{box-shadow:0 0 0 2px var(--ink)}
+  .wd{width:50px;height:28px;border:0;background:none;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .wd i{display:block;width:26px;border-radius:3px;background:var(--ink)}
+  .wd.on{background:#eef1f4}
+  #tools.ro .edit{display:none}
+
+  #card{position:absolute;z-index:20;width:min(460px,44vw);background:var(--paper);border-radius:16px;
+    box-shadow:0 18px 50px rgba(0,0,0,.28),0 0 0 1px rgba(0,0,0,.06);display:none;flex-direction:column;
+    max-height:calc(100% - 24px);overflow:hidden}
+  #card.open{display:flex}
+  .chead{display:flex;align-items:center;gap:8px;padding:10px 10px 8px 14px;cursor:grab;touch-action:none;border-bottom:1px solid var(--line);position:relative}
+  .chead .t{font-weight:700;font-size:16px}
+  .chead .pt{color:var(--muted);font-size:13px}
+  .chead .x{margin-left:auto;width:36px;height:36px;border-radius:50%;border:0;background:#eef1f4;font-size:20px;cursor:pointer;flex:0 0 auto}
+  .badge{display:inline-block;font-size:11.5px;font-weight:700;color:#fff;background:var(--red);border-radius:5px;padding:1px 6px;margin-right:6px;vertical-align:2px}
+  .grip{width:36px;height:4px;border-radius:2px;background:#cfd5db;position:absolute;left:50%;top:5px;transform:translateX(-50%)}
+  .tabs{display:flex;gap:6px;padding:8px 12px 0;flex-wrap:wrap}
+  .tab{border:1px solid var(--line);background:var(--paper);border-radius:999px;padding:5px 12px;font-size:14px;cursor:pointer}
+  .tab.cur{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .tab.rel{border-style:dashed}
+  .tab small{color:var(--orig);font-weight:600;margin-left:4px}
+  .tab.cur small{color:#ffb3dc}
+  .photo{position:relative;margin:10px 12px 0;border-radius:10px;overflow:hidden;background:#111;aspect-ratio:4/3;cursor:zoom-in;max-height:46vh}
+  .photo img{width:100%;height:100%;object-fit:contain;display:block}
+  .photo .nav2{position:absolute;top:50%;transform:translateY(-50%);width:40px;height:40px;border-radius:50%;border:0;background:rgba(255,255,255,.85);font-size:20px;cursor:pointer}
+  .photo .pv{left:8px}.photo .nx{right:8px}
+  .origrow{display:flex;align-items:center;gap:8px;margin:10px 12px 0;padding:8px 10px;background:#fdf0f7;border-radius:10px}
+  .origrow label{font-size:13px;font-weight:700;color:var(--orig);white-space:nowrap}
+  .origrow input{flex:1;height:38px;border:1px solid #efc1da;border-radius:8px;padding:0 10px;font-size:18px;font-weight:600;letter-spacing:.06em;min-width:0}
+  .origrow .btn{height:38px}
+  .info{padding:10px 14px 10px;overflow:auto}
+  .info table{border-collapse:collapse;width:100%;font-size:14px}
+  .info th{text-align:left;color:var(--muted);font-weight:500;width:84px;padding:4px 0;vertical-align:top;white-space:nowrap}
+  .info td{padding:4px 0}
+  .dmg{display:flex;flex-wrap:wrap;gap:5px}
+  .dmg b{font-weight:600;background:#fff3e6;color:#8a4300;border-radius:6px;padding:2px 7px;font-size:13.5px}
+  .dmg i{font-style:normal;color:var(--muted);font-size:13px;padding:2px 0}
+  .foot{color:var(--muted);font-size:12px;padding:0 14px 12px;display:flex;align-items:center;gap:8px}
+  .foot .btn{height:32px;font-size:13.5px;margin-left:auto}
+
+  #sheetBg{position:fixed;inset:0;background:rgba(20,25,30,.35);z-index:50;display:none;align-items:center;justify-content:center;padding:16px}
+  #sheetBg.open{display:flex}
+  #sheet{background:var(--paper);border-radius:18px;width:min(580px,100%);max-height:100%;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+  #sheet.small{width:min(360px,100%)}
+  .sh-h{display:flex;align-items:center;padding:14px 16px 10px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--paper);z-index:1}
+  .sh-h b{font-size:17px}
+  .sh-b{padding:12px 16px 4px}
+  .sh-f{display:flex;gap:8px;padding:12px 16px 16px;position:sticky;bottom:0;background:var(--paper);border-top:1px solid var(--line)}
+  .fl{margin-bottom:12px}
+  .fl>label{display:block;font-size:12.5px;color:var(--muted);font-weight:600;margin-bottom:5px}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  select, option{color:#1d2329;background-color:#fff}
+  select option:checked{background:#dbe8fb;color:#1d2329}
+  .in{height:42px;color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:0 10px;font-size:16px;background:#fff;min-width:0}
+  .in.big{height:52px;font-size:24px;font-weight:700;letter-spacing:.08em;text-align:center;width:100%}
+  textarea.in{height:auto;min-height:64px;padding:8px 10px;width:100%;resize:vertical}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{border:1px solid var(--line);background:#fff;border-radius:999px;height:36px;padding:0 13px;font-size:14.5px;cursor:pointer}
+  .chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+  .chip:disabled{opacity:.45}
+  .grade .chip{width:40px;padding:0;font-weight:700}
+  .dmgrow{display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+  .dmgrow select{flex:1 1 180px}
+  .rm{width:34px;height:34px;border:0;border-radius:50%;background:#f3f4f6;font-size:18px;cursor:pointer;flex:0 0 auto}
+  .thumbs{display:flex;gap:8px;flex-wrap:wrap}
+  .thumb{position:relative;width:84px;height:63px;border-radius:8px;overflow:hidden;background:#ddd}
+  .thumb img{width:100%;height:100%;object-fit:cover}
+  .thumb button{position:absolute;top:2px;right:2px;width:22px;height:22px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:13px;line-height:1}
+  .addph{width:84px;height:63px;border:1.5px dashed #b9c2ca;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12.5px;cursor:pointer;text-align:center}
+  .preview{font-size:12.5px;background:#fafbfc;border:1px dashed var(--line);border-radius:9px;padding:8px 10px;white-space:pre-line;color:var(--red);line-height:1.5}
+  .origs{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center}
+  .origs span{font-size:14px;font-weight:600}
+  .profiles{display:grid;gap:8px}
+  .prof{display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;cursor:pointer;text-align:left;background:#fff}
+  .prof.on{border-color:var(--accent);background:#f3f8ff}
+  .prof:disabled{opacity:.5;cursor:default}
+  .prof b{display:block;font-size:15px}
+  .prof small{color:var(--muted);font-size:12.5px}
+  .filebox{display:flex;align-items:center;gap:10px;border:1.5px dashed #b9c2ca;border-radius:12px;padding:12px;cursor:pointer;background:#fafbfc}
+  .filebox.ok{border-style:solid;border-color:#9fd3b2;background:#f2fbf5}
+  .filebox b{font-size:14.5px}
+  .filebox small{display:block;color:var(--muted);font-size:12.5px;word-break:break-all}
+  .prog{font-size:14px;color:var(--muted);padding:10px 0}
+  .bar{height:6px;border-radius:3px;background:#e6ebf0;overflow:hidden;margin-top:6px}
+  .bar i{display:block;height:100%;background:var(--accent);width:0;transition:width .2s}
+  .summary{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:14px;background:#f6f8fa;border-radius:10px;padding:10px 12px}
+  .summary dt{color:var(--muted)} .summary dd{margin:0;font-weight:600}
+  .warn{color:#9a5b00;font-size:13px;margin-top:8px}
+
+  #lb{position:fixed;inset:0;background:#000;z-index:60;display:none;touch-action:none;overflow:hidden}
+  #lb.open{display:block}
+  #lb img{position:absolute;left:0;top:0;transform-origin:0 0;user-select:none;-webkit-user-drag:none}
+  #lb .x{position:absolute;top:14px;right:14px;width:44px;height:44px;border-radius:50%;border:0;background:rgba(255,255,255,.9);font-size:22px;z-index:2;cursor:pointer}
+  #lb .cap{position:absolute;left:14px;top:16px;color:#fff;font-size:15px;z-index:2;text-shadow:0 1px 3px #000}
+
+  #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:rgba(29,35,41,.92);color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;z-index:70;opacity:0;transition:opacity .3s;pointer-events:none;max-width:90vw}
+  #toast.on{opacity:1}
+  #busy{position:fixed;inset:0;background:rgba(255,255,255,.65);z-index:80;display:none;align-items:center;justify-content:center;font-size:15px;font-weight:600;text-align:center;padding:20px}
+  #busy.on{display:flex}
+
+  @media (orientation:portrait){ .photo{max-height:28vh} #card{max-height:58%} }
+  @media (max-width:760px){
+    #card{width:calc(100vw - 16px)!important;left:8px!important;right:auto!important;top:auto!important;bottom:8px!important;max-height:62%}
+    .pageBtn{min-width:0} .brand small,.sync span{display:none}
+  }
+</style>
+</head>
+<body>
+<!-- ================= 橋一覧 ================= -->
+<div class="app" id="home">
+  <header>
+    <div class="brand">橋梁点検ビューア<small>損傷図＋写真台帳</small></div>
+    <div class="sync" id="homeSync"><i></i><span>接続中…</span></div>
+    <div class="nav"><button class="btn" id="camBtn">カメラ表</button><button class="btn primary" id="addBtn">＋ 橋を追加</button></div>
+  </header>
+  <main><div class="wrap">
+    <div class="notice hidden" id="homeNotice"></div>
+    <div class="homehead"><div><h1>橋梁一覧</h1><p>損傷図と写真台帳のPDFを追加すると、iPadで点検に使えるビューアになります。</p></div></div>
+    <div class="grid" id="blist"></div>
+  </div></main>
+</div>
+
+<!-- ================= ビューア ================= -->
+<div class="app hidden" id="viewer">
+  <header>
+    <button class="btn" id="backBtn" aria-label="一覧へ">‹ 一覧</button>
+    <div class="brand" id="vBrand"></div>
+    <div class="sync" id="sync"><i></i><span>接続中…</span></div>
+    <div class="nav">
+      <button class="btn" id="hitsBtn">番号枠</button>
+      <button class="btn hidden" id="expBtn">書き出し</button>
+      <button class="btn" id="fitBtn">全体</button>
+      <button class="btn" id="prevBtn" aria-label="前のページ">‹</button>
+      <button class="btn pageBtn" id="pageBtn"><span id="pageLbl"></span><span class="sub">▾</span></button>
+      <button class="btn" id="nextBtn" aria-label="次のページ">›</button>
+    </div>
+  </header>
+  <div id="view">
+    <div id="stage"></div>
+    <div class="loading hidden" id="vLoading">読み込み中…</div>
+    <div id="tools" class="ui"></div>
+    <div class="hint" id="hint"></div>
+    <div id="card" class="ui">
+      <div class="chead" id="chead"><div class="grip"></div>
+        <div style="min-width:0"><div class="t" id="ct"></div><div class="pt" id="cpt"></div></div>
+        <button class="x" id="cx" aria-label="閉じる">×</button>
+      </div>
+      <div class="tabs" id="ctabs"></div>
+      <div class="photo" id="cphoto"><img id="cimg" alt="">
+        <button class="nav2 pv" id="cpv" aria-label="前の写真">‹</button>
+        <button class="nav2 nx" id="cnx" aria-label="次の写真">›</button></div>
+      <div class="info" id="cinfo"></div>
+      <div class="foot" id="cfoot"></div>
+    </div>
+  </div>
+  <div id="menu" class="pop"></div>
+  <div id="expMenu" class="pop"></div>
+</div>
+
+<div id="sheetBg"><div id="sheet"></div></div>
+<div id="lb"><div class="cap" id="lbcap"></div><button class="x" id="lbx" aria-label="閉じる">×</button><img id="lbimg" alt=""></div>
+<div id="toast"></div>
+<div id="busy">処理中…</div>
+<input type="file" id="fileIn" accept="image/*" multiple style="display:none">
+<input type="file" id="pdfIn" accept="application/pdf,.pdf" style="display:none">
+
+<script>
+'use strict';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
+const $ = id => document.getElementById(id);
+const SVGNS = 'http://www.w3.org/2000/svg';
+const PROFILES = BridgeParser.PROFILES;
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+const store = {get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
+function toast(msg,ms=2600){ const t=$('toast'); t.textContent=msg; t.classList.add('on'); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove('on'),ms); }
+function busy(msg){ const b=$('busy'); if(msg){ b.textContent=msg; b.classList.add('on'); } else b.classList.remove('on'); }
+function newId(p='m'){ return p+(crypto.randomUUID?crypto.randomUUID().replace(/-/g,'').slice(0,20):(Date.now().toString(36)+Math.random().toString(36).slice(2))); }
+function fmtDate(s){ if(!s) return ''; const d=new Date(s); return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; }
+function stamp(){ const d=new Date(); return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}`; }
+
+/* ======================= 機能（保存・写真・書き出し） ======================= */
+let db=null, assets=null, downloads=null, userCap=null, myId=null, canWrite=true, capsReady=false;
+const localBridges = new Map();   // 保存機能がない場合の一時データ
+let bridges = new Map();          // bid -> bridge doc
+let bridgesLoaded=false;
+
+async function initCaps(){
+  if(window.claude && claude.use){
+    const [d,u,a,dl] = await Promise.all(['db','user','assets','downloads'].map(n=>claude.use(n).catch(()=>null)));
+    db=d; userCap=u; assets=a; downloads=dl;
+    if(userCap){ try{ myId=await userCap.id(); }catch(e){} try{ if(await userCap.can('data.write')===false) canWrite=false; }catch(e){} }
+  }
+  capsReady=true;
+  if(downloads) $('expBtn').classList.remove('hidden');
+  if(db){
+    const timer=setTimeout(()=>{ if(!bridgesLoaded) setHomeSync('err','接続できません'); },10000);
+    db.collection('bridges').onSnapshot(snap=>{
+      bridges=new Map(snap.docs.map(d=>[d.id,{id:d.id,...d.data()}]));
+      if(!snap.metadata.fromCache){ bridgesLoaded=true; clearTimeout(timer); setHomeSync('ok','このiPadに保存'); }
+      renderHome(); if(route.bid && !V.bridge) route_();
+    }, e=>{ clearTimeout(timer); setHomeSync('err','同期が停止しました'); });
+  } else {
+    setHomeSync('local','このブラウザのみ');
+    bridgesLoaded=true;
+    const n=$('homeNotice'); n.classList.remove('hidden');
+    n.textContent='保存機能が使えない表示です。追加した橋はこの画面を閉じると消えます（Claudeにサインインした状態で開くと保存・共有できます）。';
+  }
+  if(!assets && db){ $('addBtn').classList.add('hidden'); }
+  renderHome(); refreshToolState(); loadCameras();
+  if(route.bid) route_();
+}
+function setHomeSync(cls,txt){ const e=$('homeSync'); e.className='sync '+cls; e.querySelector('span').textContent=txt; }
+function blobUrl(id){ return window.LOCAL_CAPS?LOCAL_CAPS.assets.url(id):'/_blob/'+id; }
+
+/* ======================= 画面遷移 ======================= */
+const route={bid:null};
+function parseHash(){ const m=location.hash.match(/^#b-([A-Za-z0-9-]+)$/); route.bid=m?m[1]:null; }
+function route_(){
+  parseHash();
+  if(route.bid){
+    const b=bridges.get(route.bid)||localBridges.get(route.bid);
+    if(!b){ if(bridgesLoaded||!db){ if(capsReady){ toast('この橋は見つかりません'); location.hash=''; } } return; }
+    if(V.bridge && V.bridge.id===b.id) return;
+    $('home').classList.add('hidden'); $('viewer').classList.remove('hidden');
+    openBridge(b);
+  } else {
+    closeBridge();
+    $('viewer').classList.add('hidden'); $('home').classList.remove('hidden');
+    renderHome();
+  }
+}
+window.addEventListener('hashchange', route_);
+$('backBtn').onclick=()=>{ location.hash=''; };
+$('camBtn').onclick=()=>openCameraSettings();
+
+/* ======================= 橋一覧 ======================= */
+function renderHome(){
+  const list=[...bridges.values(),...localBridges.values()].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+  const el=$('blist');
+  if(!bridgesLoaded){ el.innerHTML='<div class="empty">読み込み中…</div>'; return; }
+  if(!list.length){ el.innerHTML=`<div class="empty">まだ橋が登録されていません。<br>${(assets||!db)?'右上の「＋ 橋を追加」から損傷図と写真台帳のPDFを追加してください。':'橋を追加できるのは、このページの編集権限がある人です。'}</div>`; return; }
+  el.innerHTML=list.map(b=>{ const P=PROFILES[b.profile]||{label:b.profile}; const c=b.counts||{};
+    return `<div class="bcard" data-b="${esc(b.id)}"><h3>${esc(b.name||'(名称なし)')}</h3>
+      <div class="meta"><span class="tag">${esc(P.label)}</span>${b.local?'<span class="tag" style="background:#f1eafc;color:#6b46c1">一時</span>':''}<br>
+      損傷図 ${c.pages||0}ページ ・ 写真 ${c.photos||0}枚 ・ 径間 ${esc(c.spans||'-')}<br>
+      ${b.code?'橋梁番号 '+esc(b.code)+' ・ ':''}登録 ${esc((b.createdAt||'').slice(0,10))}</div>
+      ${(assets||b.local)?`<button class="more" data-more="${esc(b.id)}" aria-label="メニュー">⋯</button>`:''}</div>`; }).join('');
+  el.querySelectorAll('.bcard').forEach(c=>c.onclick=e=>{ if(e.target.closest('.more')) return; location.hash='#b-'+c.dataset.b; });
+  el.querySelectorAll('.more').forEach(m=>m.onclick=e=>{ e.stopPropagation(); bridgeMenu(m.dataset.more); });
+}
+function bridgeMenu(bid){
+  const b=bridges.get(bid)||localBridges.get(bid); if(!b) return;
+  openSheet(`<div class="sh-h"><b>${esc(b.name)}</b><button class="rm" style="margin-left:auto" id="bmx">×</button></div>
+    <div class="sh-b"><div class="fl"><label>橋梁名</label><input class="in" id="bmName" style="width:100%" value="${esc(b.name)}"></div>
+    <p style="color:var(--muted);font-size:13px">削除すると、この橋の損傷図・写真・書き込みがすべて消えます。元に戻せません。</p></div>
+    <div class="sh-f"><button class="btn danger" id="bmDel">この橋を削除</button><button class="btn primary" id="bmSave" style="margin-left:auto">名前を保存</button></div>`,'small');
+  $('bmx').onclick=closeSheet;
+  $('bmSave').onclick=async()=>{ const n=$('bmName').value.trim(); if(!n) return; closeSheet();
+    if(b.local){ b.name=n; renderHome(); return; }
+    try{ await db.doc('bridges/'+bid).update({name:n}); }catch(e){ toast('保存できませんでした'); } };
+  $('bmDel').onclick=()=>{ openSheet(`<div class="sh-h"><b>本当に削除しますか？</b></div><div class="sh-b"><p>「${esc(b.name)}」と、その書き込み・写真をすべて削除します。</p></div>
+      <div class="sh-f"><button class="btn" id="dNo" style="margin-left:auto">やめる</button><button class="btn danger" id="dYes">削除する</button></div>`,'small');
+    $('dNo').onclick=closeSheet; $('dYes').onclick=async()=>{ closeSheet(); await deleteBridge(b); }; };
+}
+async function deleteBridge(b){
+  if(b.local){ localBridges.delete(b.id); renderHome(); return; }
+  busy('削除中…');
+  try{
+    try{ const s=await db.collection(`bridges/${b.id}/marks`).get(); for(const d of s.docs){ const m=d.data(); for(const ph of (m.photos||[])){ try{ await assets.delete(ph); }catch(e){} } await db.doc(`bridges/${b.id}/marks/${d.id}`).delete(); } }catch(e){}
+    try{ const s=await db.collection(`bridges/${b.id}/orig`).get(); for(const d of s.docs) await db.doc(`bridges/${b.id}/orig/${d.id}`).delete(); }catch(e){}
+    await db.doc('bridges/'+b.id).delete();
+    for(const id of [b.diaAsset,b.dataAsset,...(b.sheets||[])].filter(Boolean)){ try{ await assets.delete(id); }catch(e){} }
+    toast('削除しました');
+  }catch(e){ toast('削除できませんでした（'+((e&&e.code)||'エラー')+'）',4000); }
+  finally{ busy(); }
+}
+
+/* ======================= 橋の追加（PDF取込） ======================= */
+let addState=null;
+$('addBtn').onclick=()=>{ if(db && !assets){ toast('橋を追加できるのは編集権限のある人です'); return; } addState={profile:'municipal',files:{},names:{}}; renderAdd(); };
+function renderAdd(){
+  const st=addState, P=PROFILES[st.profile];
+  const ready=P.ready && P.inputs.every(i=>!i.required||st.files[i.key]);
+  openSheet(`<div class="sh-h"><b>橋を追加</b><button class="rm" style="margin-left:auto" id="axx">×</button></div>
+    <div class="sh-b">
+      <div class="fl"><label>様式</label><div class="profiles">${['municipal','hokkaido','mlit'].filter(k=>PROFILES[k]).map(k=>[k,PROFILES[k]]).map(([k,p])=>`<button class="prof${k===st.profile?' on':''}" data-p="${k}" ${p.ready?'':'disabled'}>
+        <div><b>${esc(p.label)}${p.ready?'':'（準備中）'}</b><small>${esc(p.desc)}</small></div></button>`).join('')}</div></div>
+      ${P.ready?P.inputs.map(i=>`<div class="fl"><label>${esc(i.label)}</label><div class="filebox${st.files[i.key]?' ok':''}" data-f="${i.key}">
+        <div style="font-size:24px">${st.files[i.key]?'✓':'📄'}</div><div><b>${st.files[i.key]?'選択済み':'タップしてファイルを選択'}</b><small>${esc(st.names[i.key]||'')}</small></div></div></div>`).join(''):''}
+      <div id="aprog"></div>
+    </div>
+    <div class="sh-f"><button class="btn" id="acancel" style="margin-left:auto">キャンセル</button><button class="btn primary" id="arun" ${ready?'':'disabled'}>読み込む</button></div>`);
+  $('axx').onclick=$('acancel').onclick=()=>{ addState=null; closeSheet(); };
+  $('sheet').querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{ st.profile=b.dataset.p; renderAdd(); });
+  $('sheet').querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{ st.pick=b.dataset.f; const inp=P.inputs.find(i=>i.key===b.dataset.f); $('pdfIn').accept=(inp&&inp.accept)||'application/pdf,.pdf'; $('pdfIn').value=''; $('pdfIn').click(); });
+  $('arun').onclick=runParse;
+}
+$('pdfIn').onchange=async()=>{ const f=$('pdfIn').files[0]; if(!f||!addState) return; addState.files[addState.pick]=await f.arrayBuffer(); addState.names[addState.pick]=f.name+'（'+(f.size/1048576).toFixed(1)+'MB）'; renderAdd(); };
+async function runParse(){
+  const st=addState; const P=PROFILES[st.profile];
+  $('arun').disabled=true; $('acancel').disabled=true;
+  const prog=$('aprog'); prog.innerHTML='<div class="prog"><span id="aptxt">解析を開始します…</span><div class="bar"><i id="apbar"></i></div></div>';
+  let n=0;
+  try{
+    const r=await P.parse(st.files, m=>{ $('aptxt').textContent=m; const mm=m.match(/(\d+)\/(\d+)/); if(mm){ const ocr=m.includes('文字認識'), base=m.startsWith('損傷図')&&!ocr?0:(m.startsWith('点検調書')?0:(ocr?25:30)), span=ocr?72:(m.startsWith('点検調書')?25:(m.startsWith('損傷図')?30:65)); $('apbar').style.width=(base+span*(+mm[1])/(+mm[2]))+'%'; } });
+    $('apbar').style.width='100%';
+    st.result=r; renderAddResult();
+  }catch(e){
+    console.error(e);
+    prog.innerHTML=`<div class="warn">読み込みに失敗しました：${esc(e&&e.message||e)}<br>様式が「${esc(P.label)}」と合っているか確認してください。</div>`;
+    $('arun').disabled=false; $('acancel').disabled=false;
+  }
+}
+function renderAddResult(){
+  const st=addState, r=st.result, P=PROFILES[st.profile];
+  const links=r.pages.reduce((a,p)=>a+p.spots.reduce((b,s)=>b+s.ids.length,0),0);
+  const exist=r.pages.reduce((a,p)=>a+p.existing.reduce((b,e)=>b+e.rows.length,0),0);
+  const spans=[...new Set(r.pages.flatMap(p=>p.span.split('・')).filter(Boolean))].sort((a,b)=>(parseFloat(a)||0)-(parseFloat(b)||0)||String(a).localeCompare(b));
+  const code=(r.photos.find(p=>p.code)||{}).code||'';
+  const noimg=r.photos.filter(p=>p.sheet==null).length;
+  openSheet(`<div class="sh-h"><b>読み込み結果の確認</b></div>
+    <div class="sh-b">
+      <div class="fl"><label>橋梁名</label><input class="in" id="rName" style="width:100%" value="${esc(r.bridge)}"></div>
+      <dl class="summary">
+        <dt>様式</dt><dd>${esc(P.label)}</dd>
+        <dt>損傷図</dt><dd>${r.source==='dxf'?'DXF・':''}${r.pages.length} ${r.source==='dxf'?'枚':'ページ'}（径間 ${esc(spans.join('・')||'-')}）</dd>
+        <dt>${st.profile==='hokkaido'?'点検調書（損傷写真）':'写真台帳'}</dt><dd>${r.photos.length} 枚${noimg?`（うち写真なし ${noimg}）`:''}</dd>
+        <dt>写真番号のリンク</dt><dd>${links} 箇所</dd>
+        <dt>既存の損傷記載</dt><dd>${exist} 件</dd>
+      </dl>
+      ${r.missing&&r.missing.length?`<div class="warn">点検調書にあるが損傷図で見つからなかった写真番号が ${r.missing.length} 件あります（文字認識の読み落としの可能性）：<br>${r.missing.slice(0,40).map(esc).join('、')}${r.missing.length>40?' …':''}<br>保存後、ビューアの「番号修正」ツールで追加できます。</div>`:''}
+      ${r.unresolved.length?`<div class="warn">写真台帳に見つからない写真番号が ${r.unresolved.length} 件あります：<br>${r.unresolved.slice(0,12).map(u=>`p${u.page} ${u.point?'【'+esc(u.point)+'】':'写真：'}${esc(u.num)}`).join('、')}${r.unresolved.length>12?' …':''}</div>`:'<div style="color:#1b7a43;font-size:13.5px;margin-top:8px">✓ 損傷図の写真番号はすべて写真台帳と対応が取れました</div>'}
+      <div id="aprog"></div>
+    </div>
+    <div class="sh-f"><button class="btn" id="rBack" style="margin-left:auto">やり直す</button><button class="btn primary" id="rSave">保存して開く</button></div>`);
+  $('rBack').onclick=()=>{ st.result=null; renderAdd(); };
+  $('rSave').onclick=()=>saveBridge($('rName').value.trim()||r.bridge||'名称未設定');
+}
+async function saveBridge(name){
+  const st=addState, r=st.result;
+  const bid=newId('b');
+  const spans=[...new Set(r.pages.flatMap(p=>p.span.split('・')).filter(Boolean))].sort((a,b)=>(parseFloat(a)||0)-(parseFloat(b)||0)||String(a).localeCompare(b)).join('・');
+  const data={v:1, profile:st.profile, bridge:name, pages:r.pages, photos:r.photos, sprite:{cellW:r.sprite.cellW,cellH:r.sprite.cellH,cols:r.sprite.cols,rows:r.sprite.rows}};
+  const counts={pages:r.pages.length, photos:r.photos.length, spans}; if(r.code) data.code=r.code;
+  $('rSave').disabled=true; $('rBack').disabled=true;
+  if(!db||!assets){
+    const b={id:bid, local:true, name, profile:st.profile, counts, createdAt:new Date().toISOString(),
+      src:{dia:r.pages.some(p=>p.svgText)?null:URL.createObjectURL(new Blob([st.files.dia],{type:'application/pdf'})), sheets:r.sprite.sheets.map(s=>URL.createObjectURL(s)), data}};
+    localBridges.set(bid,b); addState=null; closeSheet(); location.hash='#b-'+bid; return;
+  }
+  const prog=$('aprog'); prog.innerHTML='<div class="prog"><span id="aptxt">保存しています…</span><div class="bar"><i id="apbar"></i></div></div>';
+  const total=r.sprite.sheets.length+2; let done=0; const tick=t=>{ done++; $('aptxt').textContent=t; $('apbar').style.width=(100*done/total)+'%'; };
+  const up=async(blob,type)=>{ for(let k=0;;k++){ try{ return await assets.upload(blob,{type}); }catch(e){ if(k<4&&e&&(e.code==='store_unavailable'||e.code==='rate_limited'||e.code==='upstream_error')){ await new Promise(r=>setTimeout(r,1500*(k+1))); continue; } throw e; } } };
+  const uploaded=[];
+  try{
+    const isSvg=r.pages.some(p=>p.svgText); let dia=null; if(!isSvg){ dia=await up(new Blob([st.files.dia]),'application/pdf'); uploaded.push(dia.id); } tick('損傷図を保存しました');
+    const sheets=[]; for(let i=0;i<r.sprite.sheets.length;i++){ const s=await up(r.sprite.sheets[i],'image/jpeg'); uploaded.push(s.id); sheets.push(s.id); tick(`写真を保存中 ${i+1}/${r.sprite.sheets.length}`); }
+    const dj=await up(new Blob([JSON.stringify(data)],{type:'application/json'}),'application/json'); uploaded.push(dj.id); tick('仕上げています…');
+    await db.doc('bridges/'+bid).set({name, code:r.code||'', profile:st.profile, diaAsset:dia?dia.id:null, dataAsset:dj.id, sheets, counts, createdAt:new Date().toISOString(), by:myId||null, v:1});
+    addState=null; closeSheet(); toast('保存しました'); location.hash='#b-'+bid;
+  }catch(e){
+    for(const id of uploaded){ try{ await assets.delete(id); }catch(_){} }
+    prog.innerHTML=`<div class="warn">保存できませんでした（${esc((e&&e.code)||e&&e.message||'エラー')}）。もう一度お試しください。</div>`;
+    $('rSave').disabled=false; $('rBack').disabled=false;
+  }
+}
+
+/* ======================= ビューア状態 ======================= */
+const view=$('view'), stage=$('stage');
+const V={bridge:null, data:null, pdf:null, urls:null, cur:0, unsub:[], server:new Map(), orig:new Map(), sheetImgs:{}, photoUrls:new Map()};
+let T={x:0,y:0,s:1}, showHits=true, mode='connecting';
+let card={kind:'ledger', ids:[], idx:0};
+
+async function openBridge(b){
+  closeBridge();
+  V.bridge=b; $('vBrand').textContent=b.name; $('vLoading').classList.remove('hidden'); stage.innerHTML='';
+  V.outKey='outbox:'+b.id; try{ V.outbox=JSON.parse(store.get(V.outKey)||'{}')||{}; }catch(e){ V.outbox={}; }
+  try{
+    let data, diaBuf;
+    if(b.local){ data=b.src.data; diaBuf=b.src.dia?await fetch(b.src.dia).then(r=>r.arrayBuffer()):null; V.urls={sheets:b.src.sheets}; }
+    else {
+      if(window.LOCAL_CAPS) await LOCAL_CAPS.assets.preload([b.dataAsset,b.diaAsset,...(b.sheets||[])].filter(Boolean));
+      [data, diaBuf]=await Promise.all([fetch(blobUrl(b.dataAsset)).then(r=>{ if(!r.ok) throw new Error('data '+r.status); return r.json(); }),
+        b.diaAsset?fetch(blobUrl(b.diaAsset)).then(r=>{ if(!r.ok) throw new Error('pdf '+r.status); return r.arrayBuffer(); }):Promise.resolve(null)]);
+      V.urls={sheets:(b.sheets||[]).map(blobUrl)};
+    }
+    if(V.bridge!==b) return;
+    V.data=data; V.pdf=diaBuf?await pdfjsLib.getDocument({data:diaBuf, isEvalSupported:false}).promise:null;
+  }catch(e){ console.error(e); $('vLoading').textContent='読み込めませんでした（'+(e.message||e)+'）'; return; }
+  $('vLoading').classList.add('hidden');
+  buildTools();
+  const saved=+store.get('dia-page:'+b.id);
+  showPage(Number.isInteger(saved)&&saved>=0&&saved<V.data.pages.length&&store.get('dia-page:'+b.id)!=null?saved:getOrder()[0]);
+  subscribe();
+  const h=$('hint'); h.textContent='写真番号をタップで写真表示 ・ ピンチで拡大 ・ 左のツールで書き込み'; h.style.opacity=1; setTimeout(()=>h.style.opacity=0,6000);
+}
+function closeBridge(){
+  V.unsub.forEach(u=>{ try{u();}catch(e){} }); V.unsub=[];
+  for(const u of V.photoUrls.values()) URL.revokeObjectURL(u);
+  Object.assign(V,{bridge:null,data:null,pdf:null,server:new Map(),orig:new Map(),sheetImgs:{},photoUrls:new Map()});
+  undoStack.length=0; closeCard(); closeSheet(); if(renderTask){ try{renderTask.cancel();}catch(e){} }
+}
+function subscribe(){
+  const b=V.bridge;
+  if(!db||b.local){ setMode('local'); return; }
+  let first=true;
+  const timer=setTimeout(()=>{ if(first) setMode('err','接続できません（端末に一時保存）'); },10000);
+  V.unsub.push(db.collection(`bridges/${b.id}/marks`).onSnapshot(s=>{
+    if(V.bridge!==b) return; V.server=new Map(s.docs.map(d=>[d.id,d.data()]));
+    if(!s.metadata.fromCache){ first=false; clearTimeout(timer); setMode('ok'); flush(); }
+    renderMarks(); updateSync();
+  }, e=>{ clearTimeout(timer); setMode('err','同期が停止しました（端末に一時保存）'); }));
+  flush();
+}
+
+/* ======================= 保存（送信待ちキュー） ======================= */
+// outbox: key -> {col:'marks'|'orig', id, op:'set'|'del', data}
+function persistOutbox(){ store.set(V.outKey, JSON.stringify(V.outbox)); }
+function merged(col){
+  const m=new Map(col==='marks'?V.server:V.orig);
+  for(const e of Object.values(V.outbox||{})){ if(e.col!==col) continue; if(e.op==='del') m.delete(e.id); else m.set(e.id,e.data); }
+  return m;
+}
+function allMarks(){ return merged('marks'); }
+function pageMarks(pi){ return [...allMarks().values()].filter(m=>m.page===pi).sort((a,b)=>(a.at||'').localeCompare(b.at||'')); }
+function getMark(id){ return allMarks().get(id); }
+function queue(col,id,op,data){ V.outbox[col+':'+id]={col,id,op,data}; persistOutbox(); updateSync(); flush(); }
+const undoStack=[];
+function commit(before, after, {noUndo}={}){
+  if(!noUndo) undoStack.push({before:before?structuredClone(before):null, after:after?structuredClone(after):null});
+  if(undoStack.length>100) undoStack.shift();
+  if(after){ after.updatedAt=new Date().toISOString(); queue('marks',after.id,'set',after); }
+  else if(before) queue('marks',before.id,'del');
+  renderMarks(); refreshToolState();
+}
+function undo(){
+  const u=undoStack.pop(); if(!u) return;
+  if(false){ if(u.before) queue('orig','p'+u.orig,'set',{v:u.before,by:myId||null,at:new Date().toISOString()}); else queue('orig','p'+u.orig,'del'); renderMarks(); markSpots(); if(card.kind==='ledger') renderOrigRow(); }
+  else if(u.before) commit(null, structuredClone(u.before), {noUndo:true});
+  else if(u.after) commit(u.after, null, {noUndo:true});
+  refreshToolState(); toast('元に戻しました');
+}
+let flushing=false, retryT=null;
+async function flush(){
+  const b=V.bridge; if(!db||!b||b.local||flushing) return;
+  flushing=true;
+  try{
+    for(const k of Object.keys(V.outbox)){
+      const e=V.outbox[k]; const path=`bridges/${b.id}/${e.col}/${e.id}`;
+      try{
+        if(e.op==='set') await db.doc(path).set(e.data); else await db.doc(path).delete();
+        if(V.outbox[k]===e){ delete V.outbox[k]; persistOutbox(); }
+      }catch(err){
+        const c=err&&err.code;
+        if(c==='invalid_argument'){ canWrite=false; setMode('err','保存できません（閲覧のみ）'); refreshToolState(); break; }
+        if(c==='quota_exceeded'){ setMode('err','保存容量が上限です'); break; }
+        if(c==='revoked'){ setMode('local'); break; }
+        clearTimeout(retryT); retryT=setTimeout(()=>{retryT=null;flush();},15000); break;
+      }
+    }
+  } finally { flushing=false; updateSync(); }
+}
+window.addEventListener('online', ()=>flush());
+function setMode(m,label){ mode=m; updateSync(label); }
+function updateSync(label){
+  const el=$('sync'), n=Object.keys(V.outbox||{}).length; el.className='sync';
+  let txt;
+  if(mode==='local'){ el.classList.add('local'); txt='この端末に保存'; }
+  else if(mode==='err'){ el.classList.add('err'); txt=label||'保存エラー'; }
+  else if(mode==='connecting') txt='接続中…';
+  else if(n){ el.classList.add('wait'); txt=`未送信 ${n}件`; }
+  else { el.classList.add('ok'); txt='保存済み'; }
+  el.querySelector('span').textContent=txt;
+}
+
+/* ======================= 写真番号リンク（自動＋手動修正） ======================= */
+const isHK=()=>V.data&&V.data.profile==='hokkaido';
+function numKey(point,num){ return isHK()?String(+num):point+'|'+num; }
+let _numMap=null, _numMapData=null;
+function idsFor(point,nums){ if(_numMapData!==V.data){ _numMap=new Map(V.data.photos.map(p=>[numKey(p.point,p.num),p.id])); _numMapData=V.data; }
+  return nums.map(n=>_numMap.get(numKey(point,n))); }
+function pageSpots(pi){
+  const p=V.data.pages[pi], links=pageMarks(pi).filter(m=>m.type==='link'), out=[];
+  p.spots.forEach((s,si)=>{ if(links.some(l=>l.base===si)) return; out.push({...s, src:'base', si}); });
+  for(const l of links){
+    const nums=splitNums(l.nums); if(!nums.length) continue;
+    const ids=idsFor(l.point||'',nums), r=l.rect, w=(r[2]-r[0])/nums.length, okIds=[], rects=[];
+    nums.forEach((n,k)=>{ if(ids[k]!=null){ okIds.push(ids[k]); rects.push([r[0]+w*k,r[1],r[0]+w*(k+1),r[3]]); } });
+    if(okIds.length) out.push({ids:okIds, nums:rects, line:r, point:l.point||'', src:'link', markId:l.id, base:l.base});
+  }
+  return out;
+}
+/* ======================= ページ表示（pdf.jsで描画） ======================= */
+let renderTask=null, hiTask=null, hiTimer=null, pageObj=null, baseScale=2;
+/* ---- ページの並び順（径間ごと：桁下面→下部工→橋面。手動で変更可） ---- */
+function pageCat(t){ t=String(t||''); if(/桁下|上部工|主桁|床版/.test(t)) return 0; if(/下部工|橋台|橋脚/.test(t)) return 1; if(/橋面/.test(t)) return 2; return 3; }
+function autoOrder(){ const P=V.data.pages; return P.map((p,i)=>i).sort((a,b)=>{ const sa=parseFloat(P[a].span)||999, sb=parseFloat(P[b].span)||999; return sa-sb||pageCat(P[a].title)-pageCat(P[b].title)||a-b; }); }
+function getOrder(){
+  const n=V.data.pages.length, b=bridges.get(V.bridge.id)||V.bridge;
+  let o=b.order; if(!o){ try{ o=JSON.parse(store.get('order:'+V.bridge.id)||'null'); }catch(e){} }
+  if(!Array.isArray(o)||o.length!==n||new Set(o).size!==n) o=V.data.profile==='hokkaido'?autoOrder():V.data.pages.map((p,i)=>i);
+  return o;
+}
+async function saveOrder(o){
+  store.set('order:'+V.bridge.id, JSON.stringify(o)); V.bridge.order=o;
+  if(db&&!V.bridge.local){ try{ await db.doc('bridges/'+V.bridge.id).update({order:o}); }catch(e){ toast('この端末にだけ保存しました'); } }
+}
+let menuEdit=false;
+function buildMenu(){
+  const m=$('menu'); let h='', last=null; const all=[...allMarks().values()], order=getOrder();
+  h+=`<div style="display:flex;gap:6px;align-items:center;padding:4px 6px 8px;border-bottom:1px solid var(--line);margin-bottom:4px">
+    <b style="font-size:14px">ページ</b>${canWrite?`<button class="btn" id="mEdit" style="margin-left:auto;height:32px;font-size:13.5px">${menuEdit?'完了':'並び替え'}</button>`:''}
+    ${menuEdit?'<button class="btn" id="mAuto" style="height:32px;font-size:13.5px">径間順に戻す</button>':''}</div>`;
+  order.forEach((i,pos)=>{ const p=V.data.pages[i];
+    if(!menuEdit&&p.span!==last){ h+=`<div class="mgrp">第${esc(p.span||'-')}径間</div>`; last=p.span; }
+    const n=p.spots.reduce((a,s)=>a+s.ids.length,0), k=all.filter(x=>x.page===i).length;
+    if(menuEdit) h+=`<div class="mitem" style="cursor:default"><span style="color:var(--ink);font-size:15px">${esc(p.title)} <small style="color:var(--muted)">（${esc(p.span||'-')}径間）</small></span><span style="display:flex;gap:4px">
+      <button class="btn" data-up="${pos}" style="height:32px;min-width:36px;padding:0" ${pos===0?'disabled':''}>↑</button><button class="btn" data-dn="${pos}" style="height:32px;min-width:36px;padding:0" ${pos===order.length-1?'disabled':''}>↓</button></span></div>`;
+    else h+=`<button class="mitem${i===V.cur?' cur':''}" data-i="${i}">${esc(p.title)}<span>${k?`<b class="pen">✎${k}</b>　`:''}写真 ${n}件</span></button>`;
+  });
+  m.innerHTML=h;
+  m.querySelectorAll('.mitem[data-i]').forEach(b=>b.onclick=()=>{ m.classList.remove('open'); showPage(+b.dataset.i); });
+  if($('mEdit')) $('mEdit').onclick=e=>{ e.stopPropagation(); menuEdit=!menuEdit; buildMenu(); };
+  if($('mAuto')) $('mAuto').onclick=async e=>{ e.stopPropagation(); const o=autoOrder(); await saveOrder(o); buildMenu(); };
+  const mv=async(pos,d)=>{ const o=getOrder().slice(), q=pos+d; [o[pos],o[q]]=[o[q],o[pos]]; await saveOrder(o); buildMenu(); };
+  m.querySelectorAll('[data-up]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); mv(+b.dataset.up,-1); });
+  m.querySelectorAll('[data-dn]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); mv(+b.dataset.dn,1); });
+}
+$('pageBtn').onclick=e=>{ e.stopPropagation(); $('expMenu').classList.remove('open'); menuEdit=false; buildMenu(); $('menu').classList.toggle('open'); };
+document.addEventListener('pointerdown', e=>{
+  if(!e.target.closest('#menu,#pageBtn')) $('menu').classList.remove('open');
+  if(!e.target.closest('#expMenu,#expBtn')) $('expMenu').classList.remove('open');
+});
+$('prevBtn').onclick=()=>{ if(!V.data) return; const o=getOrder(), k=o.indexOf(V.cur); if(k>0) showPage(o[k-1]); };
+$('nextBtn').onclick=()=>{ if(!V.data) return; const o=getOrder(), k=o.indexOf(V.cur); if(k<o.length-1) showPage(o[k+1]); };
+$('fitBtn').onclick=()=>fit();
+$('hitsBtn').onclick=()=>{ showHits=!showHits; stage.classList.toggle('hidehits',!showHits); $('hitsBtn').classList.toggle('on',!showHits); };
+
+async function showPage(i){
+  V.cur=i; store.set('dia-page:'+V.bridge.id, i);
+  const p=V.data.pages[i];
+  $('pageLbl').textContent=`${p.span||''}径間  ${p.title}`;
+  stage.querySelectorAll('canvas').forEach(c=>{ c.width=c.height=0; });
+  stage.style.width=p.w+'px'; stage.style.height=p.h+'px';
+  let h=p.svgText?`<div id="svgBase" style="position:absolute;left:0;top:0;width:${p.w}px;height:${p.h}px">${p.svgText.replace('<svg ','<svg style="width:100%;height:100%;display:block" ')}</div><svg id="ov" viewBox="0 0 ${p.w} ${p.h}" xmlns="${SVGNS}"></svg>`
+    :`<canvas id="cvBase" style="left:0;top:0;width:${p.w}px;height:${p.h}px"></canvas><canvas id="cvHi" style="display:none"></canvas><svg id="ov" viewBox="0 0 ${p.w} ${p.h}" xmlns="${SVGNS}"></svg>`;
+  V._linkSig=null; stage.innerHTML=h; renderSpots(i); stage.classList.toggle('hidehits',!showHits); stage.classList.toggle('origtool',tool==='orig');
+  closeCard(); fit(); renderMarks();
+  if(p.svgText||!V.pdf){ pageObj=null; return; }
+  pageObj=await V.pdf.getPage(i+1);
+  if(V.cur!==i) return;
+  const dpr=Math.min(window.devicePixelRatio||1,3);
+  baseScale=Math.max(1.5,Math.min(2.6,fitScale()*dpr*1.4));
+  const cv=$('cvBase'), vp=pageObj.getViewport({scale:baseScale, rotation:p.rotation});
+  cv.width=Math.ceil(vp.width); cv.height=Math.ceil(vp.height);
+  if(renderTask){ try{renderTask.cancel();}catch(e){} }
+  renderTask=pageObj.render({canvasContext:cv.getContext('2d'), viewport:vp});
+  try{ await renderTask.promise; }catch(e){}
+  scheduleHi();
+}
+function renderSpots(i){
+  stage.querySelectorAll('.spot').forEach(e=>e.remove());
+  V.spots=pageSpots(i); let h='';
+  V.spots.forEach((s,si)=>{
+    const [x0,y0,x1,y1]=s.line;
+    h+=`<div class="spot line" data-s="${si}" style="left:${x0-2}px;top:${y0-2}px;width:${x1-x0+4}px;height:${y1-y0+4}px"></div>`;
+    s.nums.forEach((r,k)=>{ h+=`<div class="spot num${s.src==='link'?' manual':''}" data-s="${si}" data-k="${k}" data-pid="${s.ids[k]}" style="left:${r[0]-2.5}px;top:${r[1]-1.5}px;width:${r[2]-r[0]+5}px;height:${r[3]-r[1]+3}px"></div>`; });
+  });
+  stage.insertAdjacentHTML('beforeend',h);
+}
+function fit(){
+  if(!V.data) return;
+  const p=V.data.pages[V.cur], vw=view.clientWidth, vh=view.clientHeight, padL=78, pad=10;
+  const s=Math.min((vw-padL-pad)/p.w,(vh-pad*2)/p.h);
+  T={s, x:padL+(vw-padL-pad-p.w*s)/2, y: vh>vw ? pad : (vh-p.h*s)/2}; apply();
+}
+function fitScale(){ const p=V.data.pages[V.cur]; return Math.min((view.clientWidth-88)/p.w,(view.clientHeight-20)/p.h); }
+function apply(){ stage.style.transform=`translate(${T.x}px,${T.y}px) scale(${T.s})`; scheduleHi(); }
+function clampT(t){ const min=fitScale()*0.6; t.s=Math.max(min,Math.min(t.s,16)); return t; }
+function zoomAt(cx,cy,ns){ ns=clampT({s:ns}).s; T.x=cx-(cx-T.x)*ns/T.s; T.y=cy-(cy-T.y)*ns/T.s; T.s=ns; apply(); }
+function toPage(cx,cy){ const r=view.getBoundingClientRect(); return {x:(cx-r.left-T.x)/T.s, y:(cy-r.top-T.y)/T.s}; }
+let lastVW=0, lastVH=0;
+function refitIfChanged(){ if(!V.data) return; const w=view.clientWidth, h=view.clientHeight; if(w!==lastVW||h!==lastVH){ lastVW=w; lastVH=h; fit(); } }
+window.addEventListener('resize', ()=>{ if($('sheetBg').classList.contains('open')||document.activeElement&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return; refitIfChanged(); });
+function afterKeyboard(){ setTimeout(()=>{ window.scrollTo(0,0); document.documentElement.scrollTop=0; document.body.scrollTop=0; refitIfChanged(); scheduleHi(); }, 350); }
+document.addEventListener('focusout', e=>{ if(e.target&&/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) afterKeyboard(); });
+// 拡大時は見えている範囲だけ高解像度で描き直す（文字をくっきり）
+function scheduleHi(){ clearTimeout(hiTimer); hiTimer=setTimeout(renderHi,260); }
+async function renderHi(){
+  const cv=$('cvHi'); if(!cv||!pageObj||!V.data) return;
+  const p=V.data.pages[V.cur], dpr=Math.min(window.devicePixelRatio||1,3), sc=T.s*dpr;
+  if(sc<=baseScale*1.05){ cv.style.display='none'; return; }
+  const vw=view.clientWidth, vh=view.clientHeight;
+  let rx=Math.max(0,-T.x/T.s), ry=Math.max(0,-T.y/T.s), rx1=Math.min(p.w,(vw-T.x)/T.s), ry1=Math.min(p.h,(vh-T.y)/T.s);
+  if(rx1<=rx||ry1<=ry) return;
+  let s=sc; const maxPx=5e6; if((rx1-rx)*(ry1-ry)*s*s>maxPx) s=Math.sqrt(maxPx/((rx1-rx)*(ry1-ry)));
+  const off=renderHi._off||(renderHi._off=document.createElement('canvas')); off.width=Math.ceil((rx1-rx)*s); off.height=Math.ceil((ry1-ry)*s);
+  const vp=pageObj.getViewport({scale:s, rotation:p.rotation});
+  if(hiTask){ try{hiTask.cancel();}catch(e){} }
+  const pageAt=V.cur;
+  hiTask=pageObj.render({canvasContext:off.getContext('2d'), viewport:vp, transform:[1,0,0,1,-rx*s,-ry*s]});
+  try{ await hiTask.promise; }catch(e){ return; }
+  if(V.cur!==pageAt) return;
+  cv.width=off.width; cv.height=off.height; cv.getContext('2d').drawImage(off,0,0); off.width=off.height=1;
+  Object.assign(cv.style,{display:'block',left:rx+'px',top:ry+'px',width:(rx1-rx)+'px',height:(ry1-ry)+'px'});
+}
+
+/* ======================= 写真（スプライトから切り出し） ======================= */
+function sheetImg(k){ if(!V.sheetImgs[k]) V.sheetImgs[k]=new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=()=>rej(new Error('sheet')); im.src=V.urls.sheets[k]; }); return V.sheetImgs[k]; }
+async function photoUrl(pid){
+  if(V.photoUrls.has(pid)) return V.photoUrls.get(pid);
+  const p=V.data.photos[pid], sp=V.data.sprite; if(p.sheet==null) return '';
+  const im=await sheetImg(p.sheet); const c=document.createElement('canvas'); c.width=sp.cellW; c.height=sp.cellH;
+  c.getContext('2d').drawImage(im,(p.cell%sp.cols)*sp.cellW,Math.floor(p.cell/sp.cols)*sp.cellH,sp.cellW,sp.cellH,0,0,sp.cellW,sp.cellH);
+  const u=await new Promise(r=>c.toBlob(b=>r(URL.createObjectURL(b)),'image/jpeg',.92)); V.photoUrls.set(pid,u); return u;
+}
+
+/* ======================= 書き込みの描画 ======================= */
+const DMG_TYPES=['腐食','亀裂','ゆるみ・脱落','破断','防食機能の劣化','ひびわれ','剥離・鉄筋露出','うき・剥離・鉄筋露出','漏水・遊離石灰','抜け落ち','床版ひびわれ','うき','遊間の異常','路面の凹凸','舗装の異常','支承部の機能障害','その他','定着部の異常','変色・劣化','漏水・滞水','異常な音・振動','異常なたわみ','変形・欠損','土砂詰り','沈下・移動・傾斜','洗掘','補修・補強材の損傷'];
+const MEMBERS=['主桁','横桁','縦桁','対傾構','横構','床版','支承部','下部工','伸縮装置','高欄・防護柵','防護柵','地覆','舗装','排水装置','照明施設','落橋防止システム','その他'];
+const POINTS=['起点へ向けて','終点へ向けて','左側全景','右側全景','起点側斜め','終点側斜め','その他'];
+const STATUS=['新規','進行','既存','補修済'];
+const COLORS=['#e0201b','#0a66d8','#111111','#16a34a'];
+const WIDTHS=[0.5,1.0,2.2];
+const FS=7, LH=9;
+function textW(s,fs){ let w=0; for(const ch of s) w+= /[\x00-\x7f｡-ﾟ]/.test(ch)?fs*0.56:fs; return w; }
+function splitNums(s){ return String(s||'').split(/[,，、\s]+/).map(x=>x.trim()).filter(Boolean); }
+const HK_DMG=['腐食','亀裂','ゆるみ','脱落','破断','塗装劣化','ひび割れ','剥離・鉄筋露出','漏水・遊離石灰','抜け落ち','床版ひび割れ','うき','遊間の異常','路面の凹凸','舗装の異常','支承の機能障害','変形','欠損','漏水・滞水','土砂詰まり','沈下・移動・傾斜','洗掘','定着部の異常','変色・劣化','補修・補強材の損傷','その他'];
+const HK_MEMBERS=['主桁','横桁','縦桁','対傾構','上横構','下横構','床版','支承(本体)','支承(本体・ｱﾝｶｰ)','伸縮装置','防護柵','高欄','地覆','舗装','排水装置','添架物(支持金具)','落橋防止構造','躯体','翼壁','基礎','照明施設','その他'];
+function flagLinesHK(m){
+  const L=[]; const nums=splitNums(m.photoNo).join(',');
+  L.push((m.status&&m.status!=='既存'?`〈${m.status}〉`:'')+'写真:'+nums);
+  const ds=(m.dmg||[]).filter(d=>d.t).map(d=>d.t+(d.g?'-'+d.g:''));
+  const mem=(m.member||'')+(m.pos?`(${m.pos})`:'');
+  if(mem||ds.length){ L.push(`${mem}${mem&&ds.length?':':''}${ds[0]||''}`); ds.slice(1).forEach(d=>L.push(' '.repeat(Math.max(1,mem.length*2))+':'+d)); }
+  if(m.size) m.size.split('\n').forEach(x=>x.trim()&&L.push('  '+x.trim()));
+  return L;
+}
+function flagLines(m){
+  if(isHK()) return flagLinesHK(m);
+  const L=[]; const pt=m.point&&m.point!=='その他'?`【${m.point}】`:'';
+  const nums=splitNums(m.photoNo).join(',');
+  const head=(m.status&&m.status!=='既存'?`〈${m.status}〉`:'')+pt+(nums?`写真:${nums}`:(pt?'写真:':''));
+  if(head) L.push(head);
+  const mem=(m.member||'')+(m.mno||''); const ds=(m.dmg||[]).filter(d=>d.t).map(d=>d.t+(d.g?'-'+d.g:''));
+  if(mem||ds.length){ L.push(` ${mem}${mem&&ds.length?':':''}${ds[0]||''}`); ds.slice(1).forEach(d=>L.push(' '.repeat(Math.max(1,mem.length*2+2))+d)); }
+  if(m.size) m.size.split('\n').forEach(s=>s.trim()&&L.push('  '+s.trim()));
+  if(!L.length) L.push('（未入力）');
+  return L;
+}
+function el(tag,attrs,parent){ const e=document.createElementNS(SVGNS,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); parent&&parent.appendChild(e); return e; }
+function ptsPath(p){ if(!p||p.length<2) return ''; let d=`M${p[0]} ${p[1]}`; for(let i=2;i<p.length;i+=2) d+=` L${p[i]} ${p[i+1]}`; if(p.length===2) d+=` L${p[0]+.01} ${p[1]}`; return d; }
+const FONT='Hiragino Sans, Noto Sans JP, sans-serif';
+function drawMark(m,ov){
+  const g=el('g',{class:'mk mk-'+m.type,'data-id':m.id},ov);
+  if(selId===m.id) g.classList.add('sel');
+  if(m.type==='pen'){ const d=ptsPath(m.pts);
+    el('path',{d,stroke:m.color,'stroke-width':m.w,fill:'none','stroke-linecap':'round','stroke-linejoin':'round'},g);
+    el('path',{d,class:'hit','stroke-width':Math.max(6,m.w*3)},g);
+  } else if(m.type==='ellipse'){
+    el('ellipse',{cx:m.cx,cy:m.cy,rx:Math.abs(m.rx),ry:Math.abs(m.ry),stroke:m.color,'stroke-width':m.w,fill:'none'},g);
+    el('ellipse',{cx:m.cx,cy:m.cy,rx:Math.abs(m.rx),ry:Math.abs(m.ry),class:'hit','stroke-width':6},g);
+  } else if(m.type==='flag'){
+    const lines=flagLines(m), w=Math.max(...lines.map(s=>textW(s,FS)))+2, h=lines.length*LH+2;
+    const ux0=m.lx, ux1=m.lx+textW(lines[0],FS)+2, uy=m.ly+2.2, ex=Math.abs(m.ax-ux0)<Math.abs(m.ax-ux1)?ux0:ux1;
+    el('rect',{class:'lbl-bg',x:m.lx-1.5,y:m.ly-FS-1,width:w+3,height:h+1,fill:'#fff','fill-opacity':.82,rx:1.2},g);
+    el('line',{x1:m.ax,y1:m.ay,x2:ex,y2:uy,stroke:m.color,'stroke-width':.45},g);
+    el('line',{x1:ux0,y1:uy,x2:ux1,y2:uy,stroke:m.color,'stroke-width':.45},g);
+    el('circle',{cx:m.ax,cy:m.ay,r:1.3,fill:m.color},g);
+    el('circle',{cx:m.ax,cy:m.ay,r:5,fill:'transparent','data-part':'anchor'},g);
+    const t=el('text',{x:m.lx,y:m.ly,'font-size':FS,fill:m.color,'font-family':FONT},g);
+    lines.forEach((s,i)=>{ const ts=el('tspan',{x:m.lx,y:m.ly+i*LH+(i?1.5:0),'xml:space':'preserve'},t); ts.textContent=s; });
+    el('rect',{x:m.lx-1.5,y:m.ly-FS-1,width:w+3,height:h+1,fill:'transparent','data-part':'label'},g);
+    if(m.camNo){ const ct=el('text',{x:m.lx,y:m.ly-FS-2,'font-size':6.5,fill:m.color,'font-family':FONT},g); ct.textContent=m.camNo; }
+    if(m.photos&&m.photos.length){ const ic=el('text',{x:m.lx+w+2,y:m.ly,'font-size':6,fill:m.color,class:'ico'},g); ic.textContent='📷'+(m.photos.length>1?m.photos.length:''); }
+  } else if(m.type==='text'){
+    const fs=m.fs||FS, lines=(m.text||'').split('\n'), w=Math.max(...lines.map(s=>textW(s,fs)))+2;
+    el('rect',{class:'lbl-bg',x:m.x-1.5,y:m.y-fs-1,width:w+3,height:lines.length*fs*1.3+1,fill:'#fff','fill-opacity':.75,rx:1.2},g);
+    const t=el('text',{x:m.x,y:m.y,'font-size':fs,fill:m.color,'font-family':FONT},g);
+    lines.forEach((s,i)=>{ const ts=el('tspan',{x:m.x,y:m.y+i*fs*1.3,'xml:space':'preserve'},t); ts.textContent=s; });
+    el('rect',{x:m.x-1.5,y:m.y-fs-1,width:w+3,height:lines.length*fs*1.3+1,fill:'transparent','data-part':'label'},g);
+  }
+  return g;
+}
+let selId=null, draft=null;
+function renderMarks(){
+  const ov=$('ov'); if(!ov||!V.data) return;
+  ov.innerHTML=''; ov.classList.toggle('erase',tool==='eraser');
+  const sig=JSON.stringify(pageMarks(V.cur).filter(m=>m.type==='link').map(m=>[m.id,m.nums,m.rect,m.base,m.point]));
+  if(sig!==V._linkSig){ V._linkSig=sig; renderSpots(V.cur); stage.classList.toggle('hidehits',!showHits); }
+  pageMarks(V.cur).filter(m=>m.type!=='link').forEach(m=>drawMark(m,ov));
+  drawCamLinks(V.cur,ov);
+  if(draft) drawMark(draft,ov);
+}
+
+/* ======================= ツール ======================= */
+let tool='browse', color=COLORS[0], width=WIDTHS[0], pencilSeen=false;
+const ICON={
+  browse:'<path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V11m0-1.5V4a1.5 1.5 0 0 1 3 0v6m0-4.5a1.5 1.5 0 0 1 3 0V12m0-3.5a1.5 1.5 0 0 1 3 0V15a7 7 0 0 1-7 7h-1a7 7 0 0 1-5.5-2.7L3 15.5a1.6 1.6 0 0 1 2.5-2L8 16"/>',
+  orig:'<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7l1.5-3h5L16 7"/><circle cx="12" cy="13.5" r="3.5"/>',
+  pen:'<path d="M3 21c3-1 4-4 6-6s5-3 7-6 2-5 4-6"/><path d="M5 17l2 2"/>',
+  ellipse:'<ellipse cx="12" cy="12" rx="9" ry="6"/>',
+  flag:'<path d="M5 21V4"/><path d="M5 4h12l-3 4 3 4H5"/>',
+  text:'<path d="M5 6V4h14v2"/><path d="M12 4v16"/><path d="M9 20h6"/>',
+  eraser:'<path d="M20 20H9L4 15a2 2 0 0 1 0-3l8-8a2 2 0 0 1 3 0l5 5a2 2 0 0 1 0 3l-8 8"/><path d="M8 9l7 7"/>',
+  link:'<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+};
+const TOOLS=[['browse','閲覧'],['link','番号修正'],['orig','撮影No'],['pen','ひび割れ'],['ellipse','囲み'],['flag','旗揚げ'],['text','文字'],['eraser','消す']];
+function buildTools(){
+  let h='';
+  TOOLS.forEach(([k,l],i)=>{ h+=`<button class="tool ${i?'edit':''}" data-t="${k}"><svg viewBox="0 0 24 24">${ICON[k]}</svg>${l}</button>`; });
+  h+=`<button class="tool edit" id="undoBtn"><svg viewBox="0 0 24 24">${ICON.undo}</svg>戻す</button>`;
+  h+=`<div class="tsep edit"></div><div class="swatches edit">${COLORS.map(c=>`<div class="sw" data-c="${c}" style="background:${c}"></div>`).join('')}</div>`;
+  h+=`<div class="tsep edit"></div>${WIDTHS.map((w,i)=>`<button class="wd edit" data-w="${w}"><i style="height:${[2,3.5,6][i]}px"></i></button>`).join('')}`;
+  $('tools').innerHTML=h;
+  $('tools').querySelectorAll('.tool[data-t]').forEach(b=>b.onclick=()=>setTool(b.dataset.t));
+  $('undoBtn').onclick=undo;
+  $('tools').querySelectorAll('.sw').forEach(b=>b.onclick=()=>{ color=b.dataset.c; refreshToolState(); if(selId){ const m=getMark(selId); if(m&&m.color!==color){ const n=structuredClone(m); n.color=color; commit(m,n);} } });
+  $('tools').querySelectorAll('.wd').forEach(b=>b.onclick=()=>{ width=+b.dataset.w; refreshToolState(); });
+  refreshToolState();
+}
+function refreshToolState(){
+  const tb=$('tools'); if(!tb||!tb.firstChild) return;
+  tb.classList.toggle('ro',!canWrite);
+  tb.querySelectorAll('.tool[data-t]').forEach(b=>b.classList.toggle('on',b.dataset.t===tool));
+  tb.querySelectorAll('.sw').forEach(b=>b.classList.toggle('on',b.dataset.c===color));
+  tb.querySelectorAll('.wd').forEach(b=>b.classList.toggle('on',+b.dataset.w===width));
+  if($('undoBtn')) $('undoBtn').disabled=!undoStack.length;
+}
+const HINTS={link:'写真番号の枠をタップして番号を修正 ・ 枠のない「写真：」をタップすると新しく追加できます',browse:'写真番号をタップで写真表示 ・ ピンチで拡大',orig:'旗揚げの近くをタップして撮影No（例 5555、S1301111）を書き込み ・ 一番近い旗揚げに紐づき、写真番号の順に割り振られます',pen:'なぞってひび割れを記入（Apple Pencilなら指で移動・拡大できます）',ellipse:'ドラッグで囲みを記入',
+  flag:'損傷位置をタップして旗揚げ ・ 既存の旗はドラッグで移動、タップで編集',text:'文字を置く位置をタップ ・ 既存の文字はドラッグで移動',eraser:'消したい書き込みをタップ'};
+function setTool(t){
+  if(!canWrite && t!=='browse') return;
+  tool=t; selId=null; stage.classList.toggle('origtool',t==='orig'); stage.classList.toggle('linktool',t==='link');
+  refreshToolState(); renderMarks();
+  const h=$('hint'); h.textContent=HINTS[t]; h.style.opacity=1; clearTimeout(h._t); h._t=setTimeout(()=>h.style.opacity=0,4000);
+}
+
+/* ======================= 入力 ======================= */
+const pts=new Map(); let gst=null, moved=false, lastTap=0, op=null;
+function isUI(e){ return e.target.closest('.ui,#card'); }
+function hitMark(cx,cy){ for(const e of document.elementsFromPoint(cx,cy)){ const g=e.closest&&e.closest('#ov .mk'); if(g) return {id:g.dataset.id, part:(e.dataset&&e.dataset.part)||null}; } return null; }
+function startPan(){ const r=view.getBoundingClientRect(), v=[...pts.values()];
+  if(v.length===1) gst={mode:'pan',x:v[0].x,y:v[0].y,t:{...T}};
+  else if(v.length>=2){ const [a,b]=v; gst={mode:'pinch',d:Math.hypot(a.x-b.x,a.y-b.y)||1,cx:(a.x+b.x)/2-r.left,cy:(a.y+b.y)/2-r.top,t:{...T}}; } }
+const r1=v=>Math.round(v*10)/10;
+view.addEventListener('pointerdown', e=>{
+  if(isUI(e)||!V.data) return;
+  if(e.pointerType==='pen') pencilSeen=true;
+  const fingerDraws=!(pencilSeen&&e.pointerType==='touch');
+  view.setPointerCapture?.(e.pointerId);
+  const P=toPage(e.clientX,e.clientY);
+  if(pts.size===0&&!op&&(tool==='flag'||tool==='text'||tool==='orig')&&fingerDraws){
+    const h=hitMark(e.clientX,e.clientY);
+    if(h){ const m=getMark(h.id); if(m&&((tool==='flag'&&m.type==='flag')||((tool==='text'||tool==='orig')&&m.type==='text'))){ op={kind:'drag',id:m.id,pid:e.pointerId,part:h.part,start:P,orig:structuredClone(m),moved:false}; return; } }
+  }
+  if(pts.size===0&&!op&&(tool==='pen'||tool==='ellipse')&&fingerDraws){
+    draft = tool==='pen' ? {id:'_draft',type:'pen',page:V.cur,color,w:width,pts:[r1(P.x),r1(P.y)]} : {id:'_draft',type:'ellipse',page:V.cur,color,w:width,cx:P.x,cy:P.y,rx:0,ry:0,sx:P.x,sy:P.y};
+    op={kind:'draw',pid:e.pointerId,ptype:e.pointerType,startPos:{x:e.clientX,y:e.clientY}}; renderMarks(); return;
+  }
+  if(op&&op.kind==='draw'&&op.ptype!=='pen'&&e.pointerType!=='pen'){ pts.set(op.pid,{x:op.startPos.x,y:op.startPos.y}); draft=null; op=null; renderMarks(); }
+  pts.set(e.pointerId,{x:e.clientX,y:e.clientY}); moved=pts.size>1; startPan();
+});
+view.addEventListener('pointermove', e=>{
+  if(op&&e.pointerId===op.pid){
+    if(op.kind==='draw'&&draft){
+      if(draft.type==='pen'){ const evs=e.getCoalescedEvents?e.getCoalescedEvents():[]; for(const ce of (evs.length?evs:[e])){ const P=toPage(ce.clientX,ce.clientY), lx=draft.pts[draft.pts.length-2], ly=draft.pts[draft.pts.length-1]; if(Math.hypot(P.x-lx,P.y-ly)>0.35/Math.max(1,T.s/3)) draft.pts.push(r1(P.x),r1(P.y)); } }
+      else { const P=toPage(e.clientX,e.clientY); draft.cx=(draft.sx+P.x)/2; draft.cy=(draft.sy+P.y)/2; draft.rx=Math.abs(P.x-draft.sx)/2; draft.ry=Math.abs(P.y-draft.sy)/2; }
+      renderMarks();
+    } else if(op.kind==='drag'){
+      const P=toPage(e.clientX,e.clientY), dx=P.x-op.start.x, dy=P.y-op.start.y;
+      if(Math.hypot(dx,dy)*T.s>6) op.moved=true;
+      if(op.moved){ const n=structuredClone(op.orig);
+        if(n.type==='flag'){ if(op.part==='anchor'){ n.ax=op.orig.ax+dx; n.ay=op.orig.ay+dy; } else { n.lx=op.orig.lx+dx; n.ly=op.orig.ly+dy; } } else { n.x=op.orig.x+dx; n.y=op.orig.y+dy; }
+        op.cur=n; const ov=$('ov'), old=ov.querySelector(`[data-id="${n.id}"]`); if(old) old.remove(); drawMark(n,ov); }
+    }
+    return;
+  }
+  if(!pts.has(e.pointerId)||!gst) return;
+  pts.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  const r=view.getBoundingClientRect();
+  if(gst.mode==='pan'&&pts.size===1){ const dx=e.clientX-gst.x, dy=e.clientY-gst.y; if(Math.abs(dx)+Math.abs(dy)>8) moved=true; if(moved){ T={...gst.t,x:gst.t.x+dx,y:gst.t.y+dy}; apply(); } }
+  else if(gst.mode==='pinch'&&pts.size>=2){ const [a,b]=[...pts.values()], d=Math.hypot(a.x-b.x,a.y-b.y), cx=(a.x+b.x)/2-r.left, cy=(a.y+b.y)/2-r.top;
+    const ns=clampT({s:gst.t.s*d/gst.d}).s; T={s:ns,x:cx-(gst.cx-gst.t.x)*ns/gst.t.s,y:cy-(gst.cy-gst.t.y)*ns/gst.t.s}; apply(); }
+});
+function endPointer(e){
+  if(op&&e.pointerId===op.pid){
+    const o=op; op=null;
+    if(o.kind==='draw'&&draft){ const d=draft; draft=null;
+      const ok=d.type==='pen'?d.pts.length>=4:(d.rx*T.s>4||d.ry*T.s>4);
+      if(ok){ const m={...d,id:newId(),by:myId||null,at:new Date().toISOString()}; delete m.sx; delete m.sy; if(m.type==='ellipse'){ m.cx=r1(m.cx);m.cy=r1(m.cy);m.rx=r1(m.rx);m.ry=r1(m.ry); } commit(null,m); }
+      else renderMarks();
+    } else if(o.kind==='drag'){
+      if(o.moved&&o.cur){ ['ax','ay','lx','ly','x','y'].forEach(k=>{ if(o.cur[k]!=null) o.cur[k]=r1(o.cur[k]); }); commit(o.orig,o.cur); }
+      else { renderMarks(); tapAt(e); }
+    }
+    return;
+  }
+  if(!pts.has(e.pointerId)) return;
+  pts.delete(e.pointerId);
+  if(pts.size===0){
+    if(gst&&gst.mode==='pan'&&!moved){ const now=Date.now(), r=view.getBoundingClientRect();
+      if(tool==='browse'&&now-lastTap<300){ const cx=e.clientX-r.left, cy=e.clientY-r.top; if(T.s<1.6*fitScale()) zoomAt(cx,cy,T.s*2.2); else fit(); lastTap=0; }
+      else { lastTap=now; tapAt(e); } }
+    gst=null;
+  } else { startPan(); moved=true; }
+}
+view.addEventListener('pointerup',endPointer);
+view.addEventListener('pointercancel',e=>{ if(op&&op.pid===e.pointerId){ op=null; draft=null; renderMarks(); return; } endPointer(e); });
+view.addEventListener('wheel',e=>{ if(!V.data) return; e.preventDefault(); const r=view.getBoundingClientRect(); zoomAt(e.clientX-r.left,e.clientY-r.top,T.s*Math.exp(-e.deltaY*0.0015)); },{passive:false});
+
+function spotAt(e){ for(const x of document.elementsFromPoint(e.clientX,e.clientY)){ if(x.classList&&x.classList.contains('spot')) return x; } return null; }
+function tapAt(e){
+  const h=hitMark(e.clientX,e.clientY);
+  if(tool==='eraser'){ if(h){ const m=getMark(h.id); if(m){ commit(m,null); toast('削除しました（「戻す」で復元）'); } } return; }
+  if(tool==='link'){ const sp=spotAt(e); if(sp){ openLinkForm(V.spots[+sp.dataset.s]); } else { const P=toPage(e.clientX,e.clientY); openLinkForm(null,[r1(P.x-3),r1(P.y-6),r1(P.x+30),r1(P.y+2)]); } return; }
+  if(tool==='orig'){ if(h){ const m=getMark(h.id); if(m&&m.type==='text'){ openCamForm(m); return; } } const P=toPage(e.clientX,e.clientY); openCamForm(null,{x:r1(P.x),y:r1(P.y)}); return; }
+  if(tool==='flag'){
+    if(h){ const m=getMark(h.id); if(m&&m.type==='flag'){ openFlagForm(m); return; } }
+    const P=toPage(e.clientX,e.clientY), p=V.data.pages[V.cur];
+    openFlagForm(null,{ax:r1(P.x),ay:r1(P.y),lx:r1(P.x+(P.x>p.w*0.6?-60:22)),ly:r1(P.y+(P.y<40?26:-18))}); return;
+  }
+  if(tool==='text'){
+    if(h){ const m=getMark(h.id); if(m&&m.type==='text'){ openTextForm(m); return; } }
+    const P=toPage(e.clientX,e.clientY); openTextForm(null,{x:r1(P.x),y:r1(P.y)}); return;
+  }
+  if((tool==='pen'||tool==='ellipse')&&!(pencilSeen&&e.pointerType==='touch')) return;
+  if(h){ const m=getMark(h.id); if(m&&m.type==='flag'){ openMarkCard(m,e); return; } }
+  const sp=spotAt(e); if(sp) openSpot(+sp.dataset.s, sp.dataset.k!=null?+sp.dataset.k:0, e);
+}
+
+/* ======================= カメラ表（撮影No → 人・番号） ======================= */
+const CAMERA_DEFAULT=[['加藤','KA','BBB_'],['菊池','KI','DSCN'],['工藤','KU','____'],['西谷','NI','DSCN'],['山内','YA','YAMA'],['吉田','YO','YOSH'],['飯田','II','RIMG'],['榎本','EN','R001'],['Mavic','MA','DJIM'],['Skydio','SK','S130'],['Osmo','OS','Osmo']];
+let cameras=CAMERA_DEFAULT;
+try{ const c=JSON.parse(store.get('cameras')||'null'); if(Array.isArray(c)&&c.length) cameras=c; }catch(e){}
+function splitCam(tok){
+  const t=String(tok||'').trim(); if(!t) return {person:'',num:''};
+  const m=t.match(/^([A-Za-z_]*)(\d+)$/); const pre=m?m[1]:'', dig=m?m[2]:t;
+  const up=pre.toUpperCase();
+  let row=cameras.find(c=>c[1]&&c[1].toUpperCase()===up);
+  if(row) return {person:row[1], num:dig};
+  row=cameras.find(c=>c[2]&&c[2].replace(/_+$/,'')&&t.toUpperCase().startsWith(c[2].toUpperCase().replace(/_+$/,'')) && c[2].replace(/_+$/,'').length>0);
+  if(row){ const camPre=row[2].replace(/_+$/,''); return {person:row[1], num:t.slice(camPre.length).replace(/^_+/,'')}; }
+  if(up.length===1){ const c=cameras.filter(c=>c[1].toUpperCase().startsWith(up)); if(c.length===1) return {person:c[0][1], num:dig}; }
+  return {person:pre, num:dig};
+}
+async function loadCameras(){ if(!db) return; try{ const d=await db.doc('settings/cameras').get(); if(d.exists&&Array.isArray(d.data().rows)&&d.data().rows.length){ cameras=d.data().rows; store.set('cameras',JSON.stringify(cameras)); } }catch(e){} }
+function openCameraSettings(){
+  openSheet(`<div class="sh-h"><b>カメラ表（撮影No → 人・番号）</b><button class="rm" style="margin-left:auto" id="cmx">×</button></div>
+    <div class="sh-b"><div style="font-size:13px;color:var(--muted);margin-bottom:8px">1行に「名前,入力,カメラ名」。北海道版のExcel（損傷シート）で、撮影No「KA3899」や「S1301111」を 人＝KA／番号＝3899 のように分けるのに使います。</div>
+    <textarea class="in" id="cmTxt" rows="14" style="font-family:ui-monospace,Menlo,monospace">${esc(cameras.map(r=>r.join(',')).join('\n'))}</textarea></div>
+    <div class="sh-f"><button class="btn" id="cmReset">初期値に戻す</button><button class="btn primary" id="cmOk" style="margin-left:auto">保存</button></div>`);
+  $('cmx').onclick=closeSheet;
+  $('cmReset').onclick=()=>{ $('cmTxt').value=CAMERA_DEFAULT.map(r=>r.join(',')).join('\n'); };
+  $('cmOk').onclick=async()=>{ const rows=$('cmTxt').value.split('\n').map(l=>l.split(/[,，\t]/).map(x=>x.trim())).filter(r=>r.length>=2&&r[1]).map(r=>[r[0]||'',r[1],r[2]||'']);
+    cameras=rows.length?rows:CAMERA_DEFAULT; store.set('cameras',JSON.stringify(cameras)); closeSheet();
+    if(db){ try{ await db.doc('settings/cameras').set({rows:cameras}); toast('保存しました'); }catch(e){ toast('この端末にだけ保存しました'); } } else toast('保存しました'); };
+}
+/* ======================= 撮影No（数字の書き込み → 近くの旗揚げに紐づけ） ======================= */
+// 撮影No：英字の接頭辞＋数字（例 5555, S1301111, YAMA1433）。カンマ・空白区切り、「〜」で連番。
+function half(s){ return String(s||'').replace(/[０-９Ａ-Ｚａ-ｚ]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)); }
+const CAMTOK=/^[A-Za-z_]{0,8}\d{2,}$/;
+function camTokens(text){
+  const s=half(text).replace(/[，、・\/]/g,',').replace(/[～〜~－ー]/g,'~').trim();
+  if(!s) return null;
+  const out=[];
+  for(let part of s.split(/[,\s]+/).filter(Boolean)){
+    const r=part.match(/^([A-Za-z_]{0,8})(\d+)~([A-Za-z_]{0,8})?(\d+)$/);
+    if(r){ const pre=r[1], a=r[2], b0=r[4], b=b0.length<a.length?a.slice(0,a.length-b0.length)+b0:b0, na=+a, nb=+b;
+      if(nb>=na && nb-na<=50){ for(let k=na;k<=nb;k++) out.push(pre+String(k).padStart(a.length,'0')); continue; } return null; }
+    if(!CAMTOK.test(part)) return null;
+    const prev=out[out.length-1], pm=prev&&prev.match(/^([A-Za-z_]*)(\d+)$/);
+    if(pm&&/^\d+$/.test(part)){ if(part.length<pm[2].length) part=pm[1]+pm[2].slice(0,pm[2].length-part.length)+part; else if(pm[1]) part=pm[1]+part; }
+    out.push(part);
+  }
+  return out.length?out:null;
+}
+function normDigits(s){ return (camTokens(s)||[]).join(','); }
+function isCamText(m){ return m.type==='text' && !!camTokens(m.text) && (half(m.text).match(/\d/g)||[]).length>=3; }
+function textRect(m){ const fs=m.fs||FS, lines=(m.text||'').split('\n'); const w=Math.max(...lines.map(s=>textW(s,fs))); return [m.x, m.y-fs, m.x+w, m.y-fs+lines.length*fs*1.3]; }
+function flagRect(m){ const lines=flagLines(m), w=Math.max(...lines.map(s=>textW(s,FS))); return [m.lx, m.ly-FS, m.lx+w, m.ly-FS+lines.length*LH]; }
+function rectDist(a,b){ const dx=Math.max(0,a[0]-b[2],b[0]-a[2]), dy=Math.max(0,a[1]-b[3],b[1]-a[3]); return Math.hypot(dx,dy); }
+function existLine(p,e){ if(e.line) return e.line; const key=e.nums.join(','); const s=p.spots.find(s=>s.point===e.point && s.ids.map(id=>V.data.photos[id].num).join(',')===key); return s?s.line:null; }
+const CAM_MAX=45;   // 旗揚げからこの距離（pt）以内の数字を紐づける
+function camAssoc(pi){
+  const p=V.data.pages[pi], targets=[];
+  const SP=V.data.profile==='hokkaido'?pageSpots(pi):[];
+  if(V.data.profile==='hokkaido'){ SP.forEach((s,si)=>targets.push({key:'K'+si, rect:s.line})); }
+  else {
+  (p.existing||[]).forEach((e,ei)=>{ const r=existLine(p,e); if(r) targets.push({key:'E'+ei, rect:r}); });
+  (p.situ||[]).forEach((x,si)=>targets.push({key:'S'+si, rect:x.line}));
+  }
+  const marks=pageMarks(pi);
+  marks.filter(m=>m.type==='flag').forEach(m=>targets.push({key:'F'+m.id, rect:flagRect(m)}));
+  const map=new Map(), links=[];
+  // 各見出しの受け入れ数（写真の枚数）
+  const cap=new Map(); targets.forEach(t=>{ let n=1;
+    if(t.key[0]==='K'){ const sp=SP[+t.key.slice(1)]; n=sp?sp.ids.length:1; }
+    else if(t.key[0]==='E'){ const e=(p.existing||[])[+t.key.slice(1)]; n=e?Math.max(1,e.nums.length):1; }
+    else if(t.key[0]==='F'){ const m=getMark(t.key.slice(1)); n=m?Math.max(1,splitNums(m.photoNo).length):1; }
+    cap.set(t.key,n); });
+  const orphans=[];
+  const cams=[...marks.filter(isCamText).map(m=>({m,r:textRect(m)})), ...(p.cams||[]).filter(c=>camTokens(c.text)).map(c=>({m:{text:c.text},r:c.rect}))].sort((a,b)=>a.r[1]-b.r[1]||a.r[0]-b.r[0]);
+  const cost=(r,t)=>{ const ch=r[3]-r[1], ov=Math.min(r[3],t.rect[3])-Math.max(r[1],t.rect[1]);
+    if(ov>=ch*0.4){ const dx=Math.max(0,r[0]-t.rect[2],t.rect[0]-r[2]); return dx<=220?dx*0.7:1e9; }
+    const dx=Math.max(0,r[0]-t.rect[2],t.rect[0]-r[2]), dy=Math.max(0,r[1]-t.rect[3],t.rect[1]-r[3]), d=Math.hypot(dx,dy); return d<=CAM_MAX?Math.hypot(dx,dy*2.5)+8:1e9; };
+  // 近い組み合わせから順に、受け入れ数の範囲で割り当て
+  const pairs=[]; cams.forEach((c,ci)=>targets.forEach(t=>{ const v=cost(c.r,t); if(v<1e9) pairs.push([v,ci,t]); }));
+  pairs.sort((a,b)=>a[0]-b[0]);
+  const asg=new Array(cams.length).fill(null), used=new Map();
+  for(const [v,ci,t] of pairs){ if(asg[ci]) continue; const u=used.get(t.key)||0; if(u>=cap.get(t.key)) continue; asg[ci]=t; used.set(t.key,u+camTokens(cams[ci].m.text).length); }
+  // 余った撮影No：一番近い見出しへ（写真より多い場合）
+  cams.forEach((c,ci)=>{ if(asg[ci]) return; let best=null,bd=1e9; for(const t of targets){ const v=cost(c.r,t); if(v<bd){ bd=v; best=t; } } asg[ci]=best; });
+  // 位置順にまとめる
+  cams.forEach((c,ci)=>{ const t=asg[ci], toks=camTokens(c.m.text);
+    if(t){ if(!map.has(t.key)) map.set(t.key,[]); map.get(t.key).push({toks,y:c.r[1],x:c.r[0]}); links.push({r:c.r,t}); }
+    else { links.push({r:c.r,t:null}); orphans.push({toks,x:c.r[0],y:c.r[1]}); } });
+  for(const [k,arr] of map) map.set(k, arr.sort((a,b)=>a.y-b.y||a.x-b.x).flatMap(o=>o.toks));
+  marks.filter(m=>m.type==='flag'&&m.camNo).forEach(m=>{ const k='F'+m.id; if(!map.has(k)) map.set(k,[]); map.get(k).unshift(...(camTokens(m.camNo)||[m.camNo])); });
+  return {map, links, orphans};
+}
+function camFor(pi,key){ return (camAssoc(pi).map.get(key)||[]).join(','); }
+function drawCamLinks(pi,ov){
+  const {links}=camAssoc(pi);
+  for(const L of links){
+    const cx=(L.r[0]+L.r[2])/2, cy=(L.r[1]+L.r[3])/2;
+    if(!L.t){ const q=el('text',{x:L.r[2]+1,y:L.r[1]+4,'font-size':5,fill:'#c2187a',class:'camlink','font-family':FONT},ov); q.textContent='?'; continue; }
+    const t=L.t.rect, tx=Math.max(t[0],Math.min(cx,t[2])), ty=Math.max(t[1],Math.min(cy,t[3]));
+    if(Math.hypot(tx-cx,ty-cy)<2) continue;
+    el('line',{x1:cx,y1:cy,x2:tx,y2:ty,stroke:'#c2187a','stroke-width':.35,'stroke-dasharray':'1.2 1.2',opacity:.75,class:'camlink'},ov);
+  }
+}
+function openCamForm(m,pos){
+  const isNew=!m, f=m?structuredClone(m):{id:newId(),type:'text',page:V.cur,color,...pos,text:'',fs:FS,by:myId||null,at:new Date().toISOString()};
+  openSheet(`<div class="sh-h"><b>撮影No（カメラの番号）</b></div>
+    <div class="sh-b"><div class="fl"><input class="in big" id="oIn" autocomplete="off" value="${esc(f.text)}" placeholder="5555 / S1301111" inputmode="text" autocapitalize="characters"></div>
+    <div style="color:var(--muted);font-size:12.5px">書いた位置から一番近い旗揚げに紐づき、写真番号の順に割り振られます。複数はカンマ区切り、連番は「5555〜5557」。</div></div>
+    <div class="sh-f">${isNew?'':'<button class="btn danger" id="oDel">消す</button>'}<button class="btn" id="oNo" style="margin-left:auto">キャンセル</button><button class="btn primary" id="oOk">記録</button></div>`,'small');
+  const inp=$('oIn'); setTimeout(()=>{ inp.focus(); inp.select(); },60);
+  const ok=()=>{ const v=inp.value.trim(); closeSheet(); if(!v){ if(m) commit(m,null); return; } f.text=v; commit(m,f); };
+  inp.onkeydown=e=>{ if(e.key==='Enter') ok(); };
+  $('oOk').onclick=ok; $('oNo').onclick=closeSheet;
+  if($('oDel')) $('oDel').onclick=()=>{ closeSheet(); commit(m,null); };
+}
+/* ======================= 写真番号の修正（読み取りミスの補正） ======================= */
+function openLinkForm(spot, rect){
+  const hk=isHK();
+  let existing=null, nums='', point=spot?spot.point:'起点へ向けて', base=null, r=rect;
+  if(spot){ r=spot.line; nums=spot.ids.map(id=>V.data.photos[id].num).join(',');
+    if(spot.src==='link'){ existing=getMark(spot.markId); base=existing.base; } else base=spot.si; }
+  openSheet(`<div class="sh-h"><b>写真番号の${spot?'修正':'追加'}</b></div>
+    <div class="sh-b">
+      ${hk?'':`<div class="fl"><label>撮影ポイント</label><select class="in" id="lPoint" style="width:100%">${opts(POINTS,point)}</select></div>`}
+      <div class="fl"><label>写真番号（複数はカンマ区切り）</label><input class="in big" id="lNums" inputmode="numeric" value="${esc(nums)}" placeholder="例 26,27"></div>
+      <div id="lMsg" style="font-size:13px;color:var(--muted)">損傷図の「写真：」の番号のとおりに入力してください。台帳にない番号は無視されます。</div>
+    </div>
+    <div class="sh-f">${spot?'<button class="btn danger" id="lDel">このリンクを外す</button>':''}<button class="btn" id="lNo" style="margin-left:auto">キャンセル</button><button class="btn primary" id="lOk">保存</button></div>`,'small');
+  const inp=$('lNums'); setTimeout(()=>{ inp.focus(); inp.select(); },60);
+  const chk=()=>{ const ns=splitNums(inp.value), pt=hk?'':$('lPoint').value, ids=idsFor(pt,ns); const bad=ns.filter((n,k)=>ids[k]==null);
+    $('lMsg').innerHTML=bad.length?`<span style="color:var(--red)">台帳にない番号：${esc(bad.join(', '))}</span>`:(ns.length?ns.map((n,k)=>{ const q=V.data.photos[ids[k]]; return `${esc(n)}：${esc([q.member,q.pos].filter(Boolean).join(' '))}`; }).join('<br>'):''); };
+  inp.oninput=chk; if(!hk) $('lPoint').onchange=chk; chk();
+  const save=(ns)=>{ const m=existing?structuredClone(existing):{id:newId(),type:'link',page:V.cur,base,rect:r,by:myId||null,at:new Date().toISOString()};
+    m.nums=ns; m.point=hk?'':$('lPoint').value; closeSheet(); commit(existing,m); };
+  $('lOk').onclick=()=>save(splitNums(inp.value).join(','));
+  inp.onkeydown=e=>{ if(e.key==='Enter') $('lOk').click(); };
+  $('lNo').onclick=closeSheet;
+  if($('lDel')) $('lDel').onclick=()=>{ if(spot.src==='link'&&spot.base==null){ closeSheet(); commit(existing,null); } else save(''); };
+}
+/* ======================= 写真カード ======================= */
+function relatedIds(ids){
+  const out=[...ids], rel=new Set();
+  ids.forEach(id=>{ const p=V.data.photos[id];
+    V.data.photos.forEach(q=>{ if(q.point===p.point&&!out.includes(q.id)&&q.memo.some(m=>new RegExp('写真番号'+p.num+'(?!\\d)').test(m))){ out.push(q.id); rel.add(q.id);} }); });
+  return {list:out, rel};
+}
+function placeCard(ev){
+  const c=$('card'); if(c.dataset.dragged&&c.classList.contains('open')) return;
+  const vr=view.getBoundingClientRect(), x=ev.clientX-vr.left;
+  if(vr.height>vr.width) Object.assign(c.style,{width:'auto',left:'82px',right:'12px',top:'auto',bottom:'12px'});
+  else { c.style.width=''; c.style.top='12px'; c.style.bottom='auto'; if(x<vr.width/2){ c.style.left='auto'; c.style.right='12px'; } else { c.style.right='auto'; c.style.left='82px'; } }
+}
+function openSpot(si,k,ev){
+  const s=V.spots[si]; const {list,rel}=relatedIds(s.ids);
+  card={kind:'ledger',ids:list,rel,idx:k,si};
+  stage.querySelectorAll('.spot.active').forEach(x=>x.classList.remove('active'));
+  stage.querySelectorAll(`.spot.num[data-s="${si}"]`).forEach(x=>x.classList.add('active'));
+  selId=null; renderMarks(); placeCard(ev); $('card').classList.add('open'); renderCard(); $('hint').style.opacity=0;
+}
+function openMarkCard(m,ev){
+  card={kind:'mark',id:m.id,idx:0};
+  stage.querySelectorAll('.spot.active').forEach(x=>x.classList.remove('active'));
+  selId=m.id; renderMarks(); placeCard(ev); $('card').classList.add('open'); renderCard();
+}
+async function nameOf(uid){ if(!uid||!userCap||!userCap.profiles) return ''; try{ const ps=await userCap.profiles([uid]); return (ps[uid]&&ps[uid].name)||''; }catch(e){ return ''; } }
+function renderCardTabs(){
+  if(card.kind!=='ledger') return;
+  const tabs=$('ctabs');
+  tabs.innerHTML=card.ids.map((pid,i)=>{ const q=V.data.photos[pid], r=card.rel.has(pid), o='';
+    return `<button class="tab${i===card.idx?' cur':''}${r?' rel':''}" data-i="${i}">${esc(q.num)}${r?' ＋':''}${o?`<small>${esc(o)}</small>`:''}</button>`; }).join('');
+  tabs.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{ card.idx=+b.dataset.i; renderCard(); });
+  tabs.style.display=card.ids.length>1?'flex':'none';
+}
+function renderCard(){
+  const tabs=$('ctabs'), ph=$('cphoto'), img=$('cimg');
+  if(card.kind==='mark'){
+    const m=getMark(card.id); if(!m){ closeCard(); return; }
+    $('ct').innerHTML=`<span class="badge" style="background:${esc(m.color)}">${esc(m.status||'新規')}</span>${esc((m.member||'')+(m.mno||'')||'旗揚げ')}`;
+    $('cpt').textContent=`${m.point?'【'+m.point+'】':''}${m.photoNo?' 写真 '+splitNums(m.photoNo).join(', '):''}`;
+    const photos=m.photos||[];
+    tabs.innerHTML=photos.map((p,i)=>`<button class="tab${i===card.idx?' cur':''}" data-i="${i}">写真${i+1}</button>`).join('');
+    tabs.style.display=photos.length>1?'flex':'none';
+    tabs.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{card.idx=+b.dataset.i; renderCard();});
+    ph.style.display=photos.length?'':'none';
+    if(photos.length){ card.idx=Math.min(card.idx,photos.length-1); img.src=blobUrl(photos[card.idx]); }
+    $('cpv').style.display=$('cnx').style.display=photos.length>1?'block':'none';
+    const ds=(m.dmg||[]).filter(d=>d.t).map(d=>`<b>${esc(d.t+(d.g?'-'+d.g:''))}</b>`).join('');
+    $('cinfo').innerHTML=`<table><tr><th>部材</th><td><b style="font-weight:600">${esc([m.member,m.mno].filter(Boolean).join(' ')||'—')}</b></td></tr>
+      <tr><th>損傷</th><td><div class="dmg">${ds||'<i>—</i>'}</div></td></tr>
+      ${camFor(V.cur,'F'+m.id)?`<tr><th>撮影No</th><td><b style="color:#c2187a">${esc(camFor(V.cur,'F'+m.id))}</b></td></tr>`:''}
+      ${m.size?`<tr><th>寸法等</th><td style="white-space:pre-line">${esc(m.size)}</td></tr>`:''}
+      ${m.note?`<tr><th>メモ</th><td style="white-space:pre-line">${esc(m.note)}</td></tr>`:''}</table>`;
+    $('cfoot').innerHTML=`<span id="cby">${fmtDate(m.updatedAt||m.at)}</span>${canWrite?'<button class="btn" id="cedit">編集</button>':''}`;
+    nameOf(m.by).then(n=>{ const e=$('cby'); if(e&&n) e.textContent=`${n} ・ ${fmtDate(m.updatedAt||m.at)}`; });
+    if(canWrite) $('cedit').onclick=()=>{ closeCard(); openFlagForm(getMark(m.id)); };
+    return;
+  }
+  const pid=card.ids[card.idx], p=V.data.photos[pid];
+  $('ct').textContent=`写真 ${p.num}`; $('cpt').textContent=`${p.point?'【'+p.point+'】 ':''}第${p.span}径間`;
+  renderCardTabs();
+  ph.style.display=''; img.removeAttribute('src');
+  photoUrl(pid).then(u=>{ if(card.kind==='ledger'&&card.ids[card.idx]===pid) img.src=u; });
+  $('cpv').style.display=$('cnx').style.display=card.ids.length>1?'block':'none';
+  const dm=(p.memo||[]).map(m=>/-([a-e]|[ⅰⅱⅲⅳⅴ]+|OK|NG)$|-補修済$/.test(m)&&!/^写真番号/.test(m)?`<b>${esc(m)}</b>`:`<i>${esc(m)}</i>`).join('');
+  const member=[p.member,p.mno].filter(Boolean).join(' ');
+  $('cinfo').innerHTML=`<table>${member?`<tr><th>部材</th><td><b style="font-weight:600">${esc(member)}</b></td></tr>`:''}
+    ${p.pos?`<tr><th>${isHK()?'損傷箇所':'発生位置'}</th><td>${esc(p.pos)}</td></tr>`:''}
+    <tr><th>損傷・メモ</th><td><div class="dmg">${dm||'<i>—</i>'}</div></td></tr>${p.date?`<tr><th>撮影日</th><td>${esc(p.date)}</td></tr>`:''}${camRow()}</table>`;
+  $('cfoot').textContent=`${isHK()?'点検調書':'写真台帳'} p.${p.ledger_page}${p.zu?' ・ '+p.zu:''}`;
+}
+function camRow(){ const pg=V.data.pages[V.cur], s=V.spots[card.si]; if(!s) return ''; if(isHK()){ const v=(camAssoc(V.cur).map.get('K'+card.si)||[]); const nums=s.ids.map(id=>V.data.photos[id].num); const t=v.map((c,i)=>(nums[i]?nums[i]+'→':'追加→')+c).join('　'); return `<tr><th>撮影No</th><td><b style="color:#c2187a;font-size:15px">${t?esc(t):'<span style="color:var(--muted);font-weight:400">未記入</span>'}</b></td></tr>`; } const key=s.ids.map(id=>V.data.photos[id].num).join(','); const ei=(pg.existing||[]).findIndex(e=>e.point===s.point&&e.nums.join(',')===key); const cs=ei>=0?(camAssoc(V.cur).map.get('E'+ei)||[]):[]; const nums=s.ids.map(id=>V.data.photos[id].num); const v=cs.map((c,i)=>(nums[i]?nums[i]+'→':'追加→')+c).join('　'); return `<tr><th>撮影No</th><td><b style="color:#c2187a;font-size:15px">${v?esc(v):'<span style="color:var(--muted);font-weight:400">未記入（「撮影No」ツールで旗揚げの近くに書き込み）</span>'}</b></td></tr>`; }
+function cardLen(){ return card.kind==='mark'?((getMark(card.id)||{}).photos||[]).length:card.ids.length; }
+function step(d){ const n=cardLen(); if(n>1){ card.idx=(card.idx+d+n)%n; renderCard(); } }
+function closeCard(){ $('card').classList.remove('open'); delete $('card').dataset.dragged;
+  stage.querySelectorAll('.spot.active').forEach(x=>x.classList.remove('active')); if(selId){ selId=null; renderMarks(); } }
+$('cx').onclick=closeCard;
+$('cpv').onclick=e=>{ e.stopPropagation(); step(-1); };
+$('cnx').onclick=e=>{ e.stopPropagation(); step(1); };
+(()=>{ let sx=null,sy=null;
+  $('cphoto').addEventListener('pointerdown',e=>{ if(e.target.closest('button')) return; sx=e.clientX; sy=e.clientY; });
+  $('cphoto').addEventListener('pointerup',e=>{ if(sx===null) return; const dx=e.clientX-sx, dy=e.clientY-sy; sx=null;
+    if(Math.abs(dx)>40&&Math.abs(dx)>Math.abs(dy)) step(dx<0?1:-1); else if(Math.abs(dx)<8&&Math.abs(dy)<8) openLB(); });
+})();
+(()=>{ const h=$('chead'), c=$('card'); let d=null;
+  h.addEventListener('pointerdown',e=>{ if(e.target.closest('button')) return; const r=c.getBoundingClientRect(), vr=view.getBoundingClientRect(); d={x:e.clientX,y:e.clientY,l:r.left-vr.left,t:r.top-vr.top}; h.setPointerCapture(e.pointerId); });
+  h.addEventListener('pointermove',e=>{ if(!d) return; const vr=view.getBoundingClientRect(); let l=d.l+e.clientX-d.x, t=d.t+e.clientY-d.y;
+    l=Math.max(-c.offsetWidth+80,Math.min(vr.width-80,l)); t=Math.max(0,Math.min(vr.height-60,t)); Object.assign(c.style,{left:l+'px',top:t+'px',right:'auto',bottom:'auto'}); c.dataset.dragged=1; });
+  h.addEventListener('pointerup',()=>d=null); h.addEventListener('pointercancel',()=>d=null);
+})();
+
+/* ======================= シート（入力フォーム） ======================= */
+let form=null;
+function openSheet(html,size){ $('sheet').className=size||''; $('sheet').innerHTML=html; $('sheetBg').classList.add('open'); }
+function closeSheet(){ if(document.activeElement&&document.activeElement.blur) document.activeElement.blur(); $('sheetBg').classList.remove('open'); form=null; afterKeyboard(); }
+$('sheetBg').addEventListener('pointerdown',e=>{ if(e.target===$('sheetBg')&&!addState) closeSheet(); });
+function opts(list,v){ return list.map(x=>`<option${x===v?' selected':''}>${esc(x)}</option>`).join(''); }
+function openFlagForm(m,pos){
+  const isNew=!m; let def={}; try{ def=JSON.parse(store.get('flag-last:'+V.bridge.id)||'{}'); }catch(e){}
+  form=m?structuredClone(m):{id:newId(),type:'flag',page:V.cur,color,...pos,status:'新規',point:isHK()?'':(def.point||'起点へ向けて'),pos:'',cause:'',photoNo:'',camNo:'',
+    member:def.member||'',mno:'',dmg:[{t:'',g:''}],size:'',note:'',photos:[],by:myId||null,at:new Date().toISOString()};
+  if(!form.dmg||!form.dmg.length) form.dmg=[{t:'',g:''}];
+  if(form.camNo==null) form.camNo='';
+  form._orig=m?structuredClone(m):null; renderFlagForm(isNew);
+}
+function renderFlagForm(isNew){
+  const f=form;
+  const dmgRows=f.dmg.map((d,i)=>`<div class="dmgrow"><select class="in" data-dt="${i}"><option value="">損傷の種類…</option>${opts(isHK()?HK_DMG:DMG_TYPES,d.t)}</select>
+    <div class="chips grade">${(isHK()?['ⅰ','ⅱ','ⅲ','ⅳ','ⅴ']:['a','b','c','d','e']).map(g=>`<button class="chip${d.g===g?' on':''}" data-dg="${i}" data-g="${g}">${g}</button>`).join('')}</div>
+    ${f.dmg.length>1?`<button class="rm" data-drm="${i}">×</button>`:''}</div>`).join('');
+  const ph=(f.photos||[]).map((id,i)=>`<div class="thumb"><img src="${blobUrl(id)}"><button data-prm="${i}">×</button></div>`).join('');
+  openSheet(`<div class="sh-h"><b>${isNew?'旗揚げ（損傷を追加）':'旗揚げを編集'}</b><button class="rm" style="margin-left:auto" id="fx">×</button></div>
+    <div class="sh-b">
+      <div class="fl"><label>区分</label><div class="chips">${STATUS.map(s=>`<button class="chip${f.status===s?' on':''}" data-st="${s}">${s}</button>`).join('')}</div></div>
+      <div class="fl"><label>${isHK()?'写真番号（複数はカンマ区切り）':'撮影ポイント・写真番号（複数はカンマ区切り）'}</label><div class="row">
+        <select class="in${isHK()?' hidden':''}" id="fPoint" style="flex:1 1 160px">${opts(POINTS,f.point)}</select>
+        <input class="in" id="fPhoto" style="width:150px" inputmode="numeric" placeholder="例 123,124" value="${esc(f.photoNo)}"></div></div>
+      <div class="fl"><label>撮影No（カメラの番号・複数はカンマ区切り）</label><input class="in" id="fCam" style="width:240px" autocapitalize="characters" placeholder="例 5555 / S1301111" value="${esc(f.camNo||'')}"></div>
+      <div class="fl"><label>部材</label><div class="row">
+        <select class="in" id="fMember" style="flex:1 1 160px"><option value="">部材…</option>${opts(isHK()?HK_MEMBERS:MEMBERS,f.member)}</select>
+        <input class="in${isHK()?' hidden':''}" id="fMno" style="width:100px" inputmode="numeric" placeholder="番号 例 01" value="${esc(f.mno)}"></div></div>
+      ${isHK()?`<div class="fl"><label>損傷箇所</label><input class="in" id="fPos" style="width:100%" placeholder="例 G1、G1-G2、A1-G1、L側" value="${esc(f.pos||'')}"></div>`:''}
+      <div class="fl"><label>損傷・判定</label>${dmgRows}<button class="btn" id="fAddD">＋ 損傷を追加</button></div>
+      <div class="fl"><label>寸法・数量（損傷図に表示）</label><textarea class="in" id="fSize" rows="2" placeholder="例 0.5m×1.0m ／ W=0.2mm L=1500mm">${esc(f.size)}</textarea></div>
+      ${isHK()?`<div class="fl"><label>推定原因</label><input class="in" id="fCause" style="width:100%" placeholder="例 経年劣化" value="${esc(f.cause||'')}"></div>`:''}
+      <div class="fl"><label>${isHK()?'コメント（写真のコメント欄）':'メモ（図には出ません）'}</label><textarea class="in" id="fNote" rows="2">${esc(f.note)}</textarea></div>
+      ${assets?`<div class="fl"><label>写真</label><div class="thumbs">${ph}<div class="addph" id="fAddPh">＋<br>写真を追加</div></div></div>`:''}
+      <div class="fl"><label>損傷図への表示</label><div class="preview" id="fPrev"></div></div>
+    </div>
+    <div class="sh-f">${isNew?'':'<button class="btn danger" id="fDel">削除</button>'}<button class="btn" id="fCancel" style="margin-left:auto">キャンセル</button><button class="btn primary" id="fSave">保存</button></div>`);
+  const renderOrigInputs=()=>{};
+  const upd=()=>{ $('fPrev').textContent=flagLines(f).join('\n'); };
+  const sync=()=>{ f.point=isHK()?'':$('fPoint').value; const pn=$('fPhoto').value.trim(); const changed=pn!==f.photoNo; f.photoNo=pn; f.member=$('fMember').value; f.mno=$('fMno').value.trim(); f.size=$('fSize').value; f.note=$('fNote').value; f.camNo=$('fCam').value.trim(); if($('fPos')) f.pos=$('fPos').value.trim(); if($('fCause')) f.cause=$('fCause').value.trim(); upd(); };
+  ['fPoint','fPhoto','fMember','fMno','fSize','fNote','fCam','fPos','fCause'].forEach(id=>{ if(!$(id)) return; $(id).oninput=sync; $(id).onchange=sync; });
+  sync();
+  $('sheet').querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{ sync(); f.status=b.dataset.st; renderFlagForm(isNew); });
+  $('sheet').querySelectorAll('[data-dt]').forEach(s=>s.onchange=()=>{ f.dmg[+s.dataset.dt].t=s.value; sync(); });
+  $('sheet').querySelectorAll('[data-dg]').forEach(b=>b.onclick=()=>{ sync(); const d=f.dmg[+b.dataset.dg]; d.g=d.g===b.dataset.g?'':b.dataset.g; renderFlagForm(isNew); });
+  $('sheet').querySelectorAll('[data-drm]').forEach(b=>b.onclick=()=>{ sync(); f.dmg.splice(+b.dataset.drm,1); renderFlagForm(isNew); });
+  $('sheet').querySelectorAll('[data-prm]').forEach(b=>b.onclick=()=>{ sync(); f.photos.splice(+b.dataset.prm,1); renderFlagForm(isNew); });
+  $('fAddD').onclick=()=>{ sync(); f.dmg.push({t:'',g:''}); renderFlagForm(isNew); };
+  if($('fAddPh')) $('fAddPh').onclick=()=>{ sync(); $('fileIn').value=''; $('fileIn').click(); };
+  $('fx').onclick=$('fCancel').onclick=closeSheet;
+  if($('fDel')) $('fDel').onclick=()=>{ const o=form._orig; closeSheet(); if(o){ commit(o,null); toast('削除しました（「戻す」で復元）'); } };
+  $('fSave').onclick=()=>{ sync(); const o=form._orig, n=structuredClone(form); delete n._orig;
+    n.dmg=n.dmg.filter(d=>d.t||d.g); delete n.origs;
+    store.set('flag-last:'+V.bridge.id, JSON.stringify({point:n.point,member:n.member})); closeSheet(); commit(o,n); };
+}
+$('fileIn').onchange=async()=>{
+  const files=[...$('fileIn').files]; if(!files.length||!form||!assets) return;
+  const f=form; busy('写真をアップロード中…');
+  try{ for(const file of files){ const blob=await shrink(file,2400,.85);
+      let res; try{ res=await assets.upload(blob,{type:'image/jpeg'}); }catch(err){ if(err&&err.code==='store_unavailable'){ await new Promise(r=>setTimeout(r,1500)); res=await assets.upload(blob,{type:'image/jpeg'}); } else throw err; }
+      f.photos=f.photos||[]; f.photos.push(res.id); } }
+  catch(err){ toast('写真を保存できませんでした（'+((err&&err.code)||'エラー')+'）',4000); }
+  finally{ busy(); }
+  if(form===f) renderFlagForm(!f._orig);
+};
+function shrink(file,max,q){ return new Promise((res,rej)=>{ const u=URL.createObjectURL(file), im=new Image();
+  im.onload=()=>{ const s=Math.min(1,max/Math.max(im.naturalWidth,im.naturalHeight)), c=document.createElement('canvas'); c.width=Math.round(im.naturalWidth*s); c.height=Math.round(im.naturalHeight*s);
+    c.getContext('2d').drawImage(im,0,0,c.width,c.height); URL.revokeObjectURL(u); c.toBlob(b=>b?res(b):rej(new Error('encode')),'image/jpeg',q); };
+  im.onerror=()=>{ URL.revokeObjectURL(u); rej(new Error('load')); }; im.src=u; }); }
+function openTextForm(m,pos){
+  const isNew=!m, f=m?structuredClone(m):{id:newId(),type:'text',page:V.cur,color,...pos,text:'',fs:FS,by:myId||null,at:new Date().toISOString()};
+  openSheet(`<div class="sh-h"><b>${isNew?'文字を追加':'文字を編集'}</b></div>
+    <div class="sh-b"><div class="fl"><textarea class="in" id="tTxt" rows="3" placeholder="例 W=0.3mm L=800mm">${esc(f.text)}</textarea></div>
+    <div class="fl"><label>大きさ</label><div class="chips">${[[5,'小'],[7,'中'],[10,'大']].map(([v,l])=>`<button class="chip${f.fs===v?' on':''}" data-fs="${v}">${l}</button>`).join('')}</div></div></div>
+    <div class="sh-f">${isNew?'':'<button class="btn danger" id="tDel">削除</button>'}<button class="btn" id="tCancel" style="margin-left:auto">キャンセル</button><button class="btn primary" id="tSave">保存</button></div>`);
+  setTimeout(()=>$('tTxt').focus(),50);
+  $('sheet').querySelectorAll('[data-fs]').forEach(b=>b.onclick=()=>{ f.fs=+b.dataset.fs; $('sheet').querySelectorAll('[data-fs]').forEach(x=>x.classList.toggle('on',x===b)); });
+  $('tCancel').onclick=closeSheet;
+  if($('tDel')) $('tDel').onclick=()=>{ closeSheet(); commit(m,null); };
+  $('tSave').onclick=()=>{ f.text=$('tTxt').value.replace(/\s+$/,''); closeSheet(); if(!f.text){ if(m) commit(m,null); return; } commit(m,f); };
+}
+
+/* ======================= 拡大表示 ======================= */
+let LT={x:0,y:0,s:1};
+async function openLB(){
+  let src, cap;
+  if(card.kind==='mark'){ const m=getMark(card.id), ph=(m&&m.photos)||[]; if(!ph.length) return; src=blobUrl(ph[card.idx]); cap=`${m.member||''}${m.mno||''} 旗揚げ写真`; }
+  else { const pid=card.ids[card.idx], p=V.data.photos[pid]; src=await photoUrl(pid); if(!src) return; cap=`写真 ${p.num}  ${[p.member,p.mno].filter(Boolean).join(' ')}`; }
+  const lb=$('lb'), im=$('lbimg'); lb.classList.add('open'); $('lbcap').textContent=cap; im.onload=()=>lbFit(); im.src=src; if(im.complete) lbFit();
+}
+function lbFit(){ const im=$('lbimg'), W=innerWidth, H=innerHeight, w=im.naturalWidth||640, h=im.naturalHeight||480, s=Math.min(W/w,H/h); LT={s,x:(W-w*s)/2,y:(H-h*s)/2}; lbApply(); }
+function lbApply(){ $('lbimg').style.transform=`translate(${LT.x}px,${LT.y}px) scale(${LT.s})`; }
+(()=>{ const lb=$('lb'), P=new Map(); let g=null, mv=false, lt=0;
+  const st=()=>{ const v=[...P.values()]; if(v.length===1) g={m:'pan',x:v[0].x,y:v[0].y,t:{...LT}}; else if(v.length>=2){ const [a,b]=v; g={m:'pinch',d:Math.hypot(a.x-b.x,a.y-b.y)||1,cx:(a.x+b.x)/2,cy:(a.y+b.y)/2,t:{...LT}}; } };
+  lb.addEventListener('pointerdown',e=>{ if(e.target.closest('button')) return; lb.setPointerCapture(e.pointerId); P.set(e.pointerId,{x:e.clientX,y:e.clientY}); mv=P.size>1; st(); });
+  lb.addEventListener('pointermove',e=>{ if(!P.has(e.pointerId)||!g) return; P.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(g.m==='pan'&&P.size===1){ const dx=e.clientX-g.x, dy=e.clientY-g.y; if(Math.abs(dx)+Math.abs(dy)>8) mv=true; if(mv){ LT={...g.t,x:g.t.x+dx,y:g.t.y+dy}; lbApply(); } }
+    else if(g.m==='pinch'&&P.size>=2){ const [a,b]=[...P.values()], ns=Math.max(.2,Math.min(12,g.t.s*Math.hypot(a.x-b.x,a.y-b.y)/g.d)), cx=(a.x+b.x)/2, cy=(a.y+b.y)/2;
+      LT={s:ns,x:cx-(g.cx-g.t.x)*ns/g.t.s,y:cy-(g.cy-g.t.y)*ns/g.t.s}; lbApply(); } });
+  const end=e=>{ if(!P.has(e.pointerId)) return; P.delete(e.pointerId);
+    if(P.size===0){ if(g&&g.m==='pan'&&!mv){ const now=Date.now(); if(now-lt<300){ const im=$('lbimg'), base=Math.min(innerWidth/(im.naturalWidth||640),innerHeight/(im.naturalHeight||480));
+      if(LT.s>base*1.2) lbFit(); else { const ns=base*2.5; LT={s:ns,x:e.clientX-(e.clientX-LT.x)*ns/LT.s,y:e.clientY-(e.clientY-LT.y)*ns/LT.s}; lbApply(); } lt=0; } else lt=now; } g=null; }
+    else { st(); mv=true; } };
+  lb.addEventListener('pointerup',end); lb.addEventListener('pointercancel',end);
+  lb.addEventListener('wheel',e=>{ e.preventDefault(); const ns=Math.max(.2,Math.min(12,LT.s*Math.exp(-e.deltaY*.0015))); LT={s:ns,x:e.clientX-(e.clientX-LT.x)*ns/LT.s,y:e.clientY-(e.clientY-LT.y)*ns/LT.s}; lbApply(); },{passive:false});
+})();
+$('lbx').onclick=()=>$('lb').classList.remove('open');
+
+/* ======================= 書き出し ======================= */
+const CSV_COLUMNS=['由来','径間','ページ','区分','撮影ポイント','写真番号','撮影No（オリジナル番号）','部材','部材番号','損傷','判定','詳細','寸法・数量','備考・メモ','添付写真','記入日時'];
+function csvRows(){
+  const rows=[CSV_COLUMNS], D=V.data;
+  D.pages.forEach((p,pi)=>{
+    const cam=camAssoc(pi).map;
+    (p.existing||[]).forEach((e,ei)=>{
+      const cs=cam.get('E'+ei)||[]; const nums=e.nums.length?[...e.nums]:['']; while(nums.length<cs.length) nums.push('');
+      const dm=e.rows.length?e.rows:[{member:'',mno:'',t:'',g:'',detail:'',size:'',note:''}];
+      nums.forEach((n,i)=>dm.forEach(r=>rows.push(['既存損傷図',p.span,p.title,'既存',e.point,n,cs[i]||'',r.member,r.mno,r.t,r.g,r.detail,r.size,r.note,'',''])));
+    });
+    (p.notes||[]).forEach(r=>rows.push(['既存損傷図',p.span,p.title,'全体（代表）','','','',r.member,r.mno,r.t,r.g,'','',r.note,'','']));
+    pageMarks(pi).filter(m=>m.type==='flag').forEach(m=>{
+      const cs=cam.get('F'+m.id)||[], nums=splitNums(m.photoNo), ds=(m.dmg&&m.dmg.length?m.dmg:[{t:'',g:''}]); if(!nums.length) nums.push(''); while(nums.length<cs.length) nums.push('');
+      nums.forEach((n,i)=>ds.forEach(d=>rows.push(['書き込み',p.span,p.title,m.status,m.point,n,cs[i]||'',m.member,m.mno,d.t,d.g,'',(m.size||'').replace(/\n/g,' '),(m.note||'').replace(/\n/g,' '),(m.photos||[]).length||'',(m.updatedAt||m.at||'').slice(0,16).replace('T',' ')])));
+    });
+  });
+  return rows;
+}
+/* ---- Excel（整列済データ／状況写真一覧） ---- */
+const XL_COLS=[['写真番号',10],['径間番号',null],['部材名称',12],['部材番号',10],['関連損傷図名',16],['コメント',45],['オリジナルjpg',18],['過年度写真番号',14],['X座標',12],['混合型エラー',22],['分類不可',18],['元データ',60]];
+function dmgText(r){ return [r.t+(r.g?'-'+r.g:''), r.detail, r.size].filter(Boolean).join(' '); }
+function zuName(p, pastNum, point){ const ph=V.data.photos.find(q=>q.num===pastNum&&(!point||q.point===point)); if(ph&&ph.zu) return ph.zu; return `${p.title}(第${p.span}径間)`; }
+function xlRows(){
+  const D=V.data, main=[], situ=[];
+  D.pages.forEach((p,pi)=>{
+    const A=camAssoc(pi), cam=A.map, items=[];
+    (p.existing||[]).forEach((e,ei)=>{ const line=existLine(p,e); const r0=e.rows[0]||{};
+      items.push({x:line?line[0]:0, y:line?line[1]:0, point:e.point, nums:e.nums, cams:cam.get('E'+ei)||[], member:r0.member||'', mno:r0.mno||'',
+        comment:e.rows.map(dmgText).join('、')||'', status:'', raw:`【${e.point}】写真：${e.nums.join(',')} ${(r0.member||'')+(r0.mno||'')}：${e.rows.map(dmgText).join(' ')}`}); });
+    pageMarks(pi).filter(m=>m.type==='flag').forEach(m=>{ const ds=(m.dmg||[]).filter(d=>d.t).map(d=>d.t+(d.g?'-'+d.g:''));
+      const cm=[...ds, m.size?m.size.replace(/\n/g,' '):''].filter(Boolean).join('、');
+      items.push({x:m.lx, y:m.ly, point:m.point, nums:splitNums(m.photoNo), cams:cam.get('F'+m.id)||[], member:m.member||'', mno:m.mno||'',
+        comment:(m.status&&m.status!=='既存'?`〈${m.status}〉`:'')+cm, raw:`〈${m.status||''}〉【${m.point||''}】写真：${m.photoNo||''} ${(m.member||'')+(m.mno||'')}：${cm}`}); });
+    A.orphans.forEach(o=>items.push({x:o.x, y:o.y, point:'', nums:[], cams:o.toks, member:'', mno:'', comment:'', orphan:true, raw:''}));
+    items.sort((a,b)=>a.x-b.x||a.y-b.y);
+    for(const it of items){
+      const n=Math.max(it.nums.length,it.cams.length,1);
+      const mix = it.cams.length && it.nums.length && it.cams.length!==it.nums.length ? `撮影No ${it.cams.length}件／過年度 ${it.nums.length}枚` : '';
+      const zu0=zuName(p,it.nums[0]||'',it.point);
+      for(let i=0;i<n;i++){
+        const past=it.nums[i]||'', c=it.cams[i]||'';
+        main.push({span:p.span, member:it.member, mno:it.mno, zu:past?zuName(p,past,it.point):zu0, comment:it.comment, orig:c, past, x:Math.round(it.x*10)/10,
+          mix, unk: it.orphan?'旗揚げに紐づかない撮影No':(!it.member?'部材不明':''), raw:[c, it.raw].filter(Boolean).join(' ')});
+      }
+    }
+    (p.situ||[]).forEach((x,si)=>{ const cs=cam.get('S'+si)||[]; const n=Math.max(cs.length,x.nums.length,1);
+      for(let i=0;i<n;i++) situ.push({span:p.span, member:'', mno:'', zu:`${p.title}(第${p.span}径間)`, comment:x.name, orig:cs[i]||'', past:x.nums[i]||'', x:Math.round(x.line[0]*10)/10, mix:'', unk:'', raw:[cs[i]||'', `${x.name} 写真：${x.nums.join(',')}`].filter(Boolean).join(' ')}); });
+  });
+  return {main, situ};
+}
+async function buildXlsx(){
+  if(!window.ExcelJS) await loadScript('lib/exceljs.min.js');
+  const wb=new ExcelJS.Workbook(), {main,situ}=xlRows();
+  const add=(name,rows)=>{
+    const ws=wb.addWorksheet(name,{views:[{state:'frozen',ySplit:1}]});
+    ws.columns=XL_COLS.map(([h,w])=>({header:h, width:w||9}));
+    rows.forEach((r,i)=>{ const span=/^\d+$/.test(String(r.span))?+r.span:r.span;
+      ws.addRow([i+1, span, r.member, r.mno, r.zu, r.comment, r.orig, r.past, r.x, r.mix, r.unk, r.raw]); });
+    const hr=ws.getRow(1); hr.height=16.5;
+    hr.eachCell(c=>{ c.font={name:'Yu Gothic',size:10,bold:true,color:{argb:'FFFFFFFF'}}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1F4E79'}};
+      c.alignment={horizontal:'center',vertical:'top',wrapText:true}; c.border={top:{style:'thin'},left:{style:'thin'},bottom:{style:'thin'},right:{style:'thin'}}; });
+    ws.eachRow((row,ri)=>{ if(ri===1) return; row.eachCell({includeEmpty:true},c=>{ c.font={name:'Yu Gothic',size:10}; c.alignment={vertical:'top',wrapText:c.col===6||c.col===12}; });
+      ['D','G','H'].forEach(k=>{ row.getCell(k).numFmt='@'; }); });
+    ws.autoFilter={from:'A1',to:{row:Math.max(1,rows.length+1),column:12}};
+  };
+  add('整列済データ',main); add('状況写真一覧',situ);
+  const buf=await wb.xlsx.writeBuffer();
+  return new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+const HK_HEAD=['','過年度番号 \n新規','Link','写真\n重複','人','番号','写真番号','径間\n番号','写真\n番号','部材名','損傷\n箇所','損傷\n状況01','損傷\nランク01','損傷\n状況02','損傷\nランク02','原因','コメント写真'];
+const HK_W=[2.125,12.125,7.375,7.625,5.875,7.625,14.625,7.625,7.625,20.875,17.625,18.375,10.25,14.75,10.25,33.75,76.5];
+function joinComment(ls){ return (ls||[]).reduce((a,l)=>!a?l:(/^(影響|対応|※|・)/.test(l)?a+'\n'+l:a+l),''); }
+function hkRows(){
+  const D=V.data, used=new Map(), extra=[];   // 写真id -> 撮影No
+  D.pages.forEach((p,pi)=>{
+    const A=camAssoc(pi), sp=pageSpots(pi);
+    sp.forEach((s,si)=>{ const cs=A.map.get('K'+si)||[];
+      s.ids.forEach((id,k)=>{ if(cs[k]&&!used.has(id)) used.set(id,cs[k]); });
+      cs.slice(s.ids.length).forEach(c=>extra.push({after:s.ids[s.ids.length-1], cam:c})); });
+    pageMarks(pi).filter(m=>m.type==='flag').forEach(m=>{ const cs=A.map.get('F'+m.id)||[]; const nums=splitNums(m.photoNo); const n=Math.max(1,cs.length);
+      for(let k=0;k<n;k++) extra.push({flag:m, cam:cs[k]||'', span:p.span, past:nums[k]||''}); });
+    A.orphans.forEach(o=>o.toks.forEach(c=>extra.push({orphan:true, cam:c, span:p.span})));
+  });
+  const rows=[], ph=[...D.photos].sort((a,b)=>(+a.span-+b.span)||(+a.num-+b.num));
+  const pushPhoto=(p,cam,isExtra)=>{ const d=p.dmg||[], cm=splitCam(cam);
+    rows.push({B:isExtra?'':+p.num, E:cm.person, F:cm.num, H:+p.span||p.span, J:p.member, K:p.pos, L:isExtra?'':(d[0]||{}).t||'', M:isExtra?'':(d[0]||{}).g||'', N:isExtra?'':(d[1]||{}).t||'', O:isExtra?'':(d[1]||{}).g||'', P:isExtra?'':p.cause||'', Q:isExtra?'':joinComment(p.comment)}); };
+  const spans=[...new Set(ph.map(p=>p.span))];
+  for(const sp of spans){
+    for(const p of ph.filter(q=>q.span===sp)){ pushPhoto(p, used.get(p.id)||'', false); extra.filter(e=>e.after===p.id).forEach(e=>pushPhoto(p,e.cam,true)); }
+    for(const e of extra.filter(e=>e.flag&&String(e.span)===String(sp))){ const m=e.flag, d=m.dmg||[], cm=splitCam(e.cam);
+      rows.push({B:m.status==='新規'?'新規':(e.past?+e.past:''), E:cm.person, F:cm.num, H:+sp||sp, J:m.member||'', K:m.pos||'', L:(d[0]||{}).t||'', M:(d[0]||{}).g||'', N:(d[1]||{}).t||'', O:(d[1]||{}).g||'', P:m.cause||'', Q:[m.size,m.note].filter(Boolean).join('\n')}); }
+    for(const e of extra.filter(e=>e.orphan&&String(e.span)===String(sp))){ const cm=splitCam(e.cam); rows.push({B:'', E:cm.person, F:cm.num, H:+sp||sp, J:'', K:'', L:'', M:'', N:'', O:'', P:'', Q:'※旗揚げに紐づかない撮影No'}); }
+  }
+  rows.forEach((r,i)=>r.I=i+1);
+  return rows;
+}
+async function buildHkXlsx(){
+  if(!window.ExcelJS) await loadScript('lib/exceljs.min.js');
+  const wb=new ExcelJS.Workbook(), ws=wb.addWorksheet('損傷'), rows=hkRows();
+  HK_W.forEach((w,i)=>ws.getColumn(i+1).width=w);
+  ws.getCell('A1').value='.';
+  const hr=ws.getRow(2); HK_HEAD.forEach((h,i)=>{ if(h){ const c=hr.getCell(i+1); c.value=h; c.font={name:'Yu Gothic',size:10,bold:true}; c.alignment={horizontal:'center',vertical:'middle',wrapText:true}; c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFF5F5FF'}}; c.border={top:{style:'thin'},left:{style:'thin'},bottom:{style:'thin'},right:{style:'thin'}}; } });
+  hr.height=30;
+  rows.forEach((r,i)=>{ const row=ws.getRow(i+3); const set=(col,v)=>{ if(v===''||v==null) return; const c=row.getCell(col); c.value=v; };
+    set('B',r.B); set('E',r.E); set('F',r.F); set('H',r.H); set('I',r.I); set('J',r.J); set('K',r.K); set('L',r.L); set('M',r.M); set('N',r.N); set('O',r.O); set('P',r.P); set('Q',r.Q);
+    row.getCell('F').numFmt='@'; row.getCell('Q').alignment={wrapText:true,vertical:'top'}; row.font={name:'Yu Gothic',size:10}; });
+  ws.views=[{state:'frozen',ySplit:2}];
+  const buf=await wb.xlsx.writeBuffer();
+  return new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+function toCsv(rows){ return '﻿'+rows.map(r=>r.map(v=>{ v=String(v??''); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }).join(',')).join('\r\n'); }
+$('expBtn').onclick=e=>{ e.stopPropagation(); $('menu').classList.remove('open');
+  const m=$('expMenu'), n=csvRows().length-1;
+  const xr=isHK()?null:xlRows();
+  if(isHK()){ m.innerHTML=`<button class="mitem" data-x="hkxlsx">損傷シート用（B〜Q列に貼り付け）<span>Excel・${hkRows().length}行</span></button>
+    <button class="mitem" data-x="pdf">損傷図PDF（書き込み入り・全ページ）<span>PDF</span></button>
+    <button class="mitem" data-x="png">このページの画像<span>PNG</span></button>
+    <button class="mitem" data-x="json">書き込みデータ（バックアップ）<span>JSON</span></button>`; }
+  else m.innerHTML=`<button class="mitem" data-x="xlsx">写真整理データ（整列済データ／状況写真一覧）<span>Excel・${xr.main.length}＋${xr.situ.length}行</span></button>
+    <button class="mitem" data-x="csv">損傷一覧（損傷ごと・詳細）<span>CSV・${n}行</span></button>
+    <button class="mitem" data-x="pdf">損傷図PDF（書き込み入り・全ページ）<span>PDF</span></button>
+    <button class="mitem" data-x="png">このページの画像<span>PNG</span></button>
+    <button class="mitem" data-x="json">書き込みデータ（バックアップ）<span>JSON</span></button>`;
+  m.classList.toggle('open'); m.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{ m.classList.remove('open'); doExport(b.dataset.x); });
+};
+function loadImg(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=src; }); }
+async function renderPageCanvas(pi,scale){
+  const p=V.data.pages[pi];
+  const c=document.createElement('canvas'); c.width=Math.ceil(p.w*scale); c.height=Math.ceil(p.h*scale);
+  const x=c.getContext('2d'); x.fillStyle='#fff'; x.fillRect(0,0,c.width,c.height);
+  if(p.svgText){ const u=URL.createObjectURL(new Blob([p.svgText],{type:'image/svg+xml'})); try{ x.drawImage(await loadImg(u),0,0,c.width,c.height); } finally { URL.revokeObjectURL(u); } }
+  else { const pg=await V.pdf.getPage(pi+1), vp=pg.getViewport({scale,rotation:p.rotation}); await pg.render({canvasContext:x, viewport:vp}).promise; }
+  const s=document.createElementNS(SVGNS,'svg'); s.setAttribute('xmlns',SVGNS); s.setAttribute('viewBox',`0 0 ${p.w} ${p.h}`); s.setAttribute('width',c.width); s.setAttribute('height',c.height);
+  const save=selId; selId=null; pageMarks(pi).forEach(m=>drawMark(m,s)); selId=save;
+  s.querySelectorAll('.hit,[fill="transparent"],.ico,.camlink').forEach(e=>e.remove());
+  if(s.childNodes.length){ const url=URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(s)],{type:'image/svg+xml'}));
+    try{ x.drawImage(await loadImg(url),0,0,c.width,c.height); } finally { URL.revokeObjectURL(url); } }
+  return c;
+}
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+async function doExport(kind){
+  if(!downloads){ toast('この表示では書き出しが使えません'); return; }
+  const BR=V.bridge.name; busy('作成中…');
+  try{
+    let filename, data;
+    if(kind==='hkxlsx'){ data=await buildHkXlsx(); filename=`${BR}_損傷シート用_${stamp()}.xlsx`; }
+    else if(kind==='xlsx'){ data=await buildXlsx(); filename=`${BR}_写真整理_${stamp()}.xlsx`; }
+    else if(kind==='csv'){ data=toCsv(csvRows()); filename=`${BR}_損傷一覧_${stamp()}.csv`; }
+    else if(kind==='png'){ const c=await renderPageCanvas(V.cur,3); data=await new Promise(r=>c.toBlob(r,'image/png')); const p=V.data.pages[V.cur]; filename=`${BR}_損傷図_${p.span}径間_${p.title}_${stamp()}.png`; }
+    else if(kind==='pdf'){
+      if(!window.jspdf) await loadScript('lib/jspdf.umd.min.js');
+      const {jsPDF}=window.jspdf; let doc=null;
+      const ord=getOrder();
+      for(let j=0;j<ord.length;j++){ const i=ord[j]; busy(`作成中… ${j+1}/${ord.length}`);
+        const p=V.data.pages[i], c=await renderPageCanvas(i,2.6), img=c.toDataURL('image/jpeg',.9), o=p.w>p.h?'l':'p';
+        if(!doc) doc=new jsPDF({orientation:o,unit:'pt',format:[p.w,p.h]}); else doc.addPage([p.w,p.h],o);
+        doc.addImage(img,'JPEG',0,0,p.w,p.h); }
+      data=doc.output('blob'); filename=`${BR}_損傷図_書き込み入り_${stamp()}.pdf`;
+    }
+    else { data=JSON.stringify({bridge:BR,exported:new Date().toISOString(),marks:[...allMarks().values()],orig:Object.fromEntries([...merged('orig')].map(([k,v])=>[k,v.v]))},null,1); filename=`${BR}_書き込み_${stamp()}.json`; }
+    busy(); await downloads.save({filename,data});
+  }catch(err){ busy(); const c=err&&err.code; if(c==='declined') return; toast('書き出しできませんでした'+(c?'（'+c+'）':''),4000); }
+}
+
+document.addEventListener('keydown',e=>{
+  if($('sheetBg').classList.contains('open')){ if(e.key==='Escape'&&!addState) closeSheet(); return; }
+  if(!V.data) return;
+  if(e.target.closest('input,textarea')) return;
+  if(e.key==='Escape'){ if($('lb').classList.contains('open')) $('lb').classList.remove('open'); else closeCard(); }
+  if((e.metaKey||e.ctrlKey)&&e.key==='z'){ e.preventDefault(); undo(); }
+  if($('card').classList.contains('open')&&(e.key==='ArrowRight'||e.key==='ArrowLeft')) step(e.key==='ArrowRight'?1:-1);
+});
+
+parseHash(); renderHome(); route_(); initCaps();
+
+/* ======================= オフライン版：共有用データの書き出し・読み込み ======================= */
+// ファイルの形：先頭16文字に見出しの長さ → 見出し(JSON) → 写真・図面のファイルを順に連結
+const BK_MAGIC='KYORYO1';
+async function exportBridgeFile(b){
+  if(!window.LOCAL_CAPS) return;
+  busy('書き出しを準備中…');
+  try{
+    const docs=await db._dump('bridges/'+b.id);
+    const ids=new Set([b.diaAsset,b.dataAsset,...(b.sheets||[])].filter(Boolean));
+    for(const [k,v] of docs){ if(/\/marks\//.test(k)) for(const ph of (v&&v.photos)||[]) ids.add(ph); }
+    let cams=null; try{ const d=await db.doc('settings/cameras').get(); if(d.exists) cams=d.data(); }catch(e){}
+    const files=[], parts=[];
+    for(const id of ids){ const bl=await assets.get(id); if(!bl) continue; files.push({id,type:bl.type,size:bl.size}); parts.push(bl); }
+    const head=JSON.stringify({magic:BK_MAGIC,bridge:b.id,name:b.name,exported:new Date().toISOString(),docs,files,cams});
+    const hb=new TextEncoder().encode(head);
+    const blob=new Blob([String(hb.length).padStart(16,'0'),hb,...parts],{type:'application/octet-stream'});
+    busy();
+    await downloads.save({filename:`${b.name||'橋'}_点検データ_${stamp()}.kyoryo`,data:blob});
+  }catch(e){ busy(); if(e&&e.code==='declined') return; toast('書き出しできませんでした',4000); console.error(e); }
+}
+async function importBridgeFile(file){
+  busy('読み込み中…');
+  try{
+    const len=parseInt(await file.slice(0,16).text(),10);
+    if(!(len>0)) throw new Error('形式が違います');
+    const head=JSON.parse(await file.slice(16,16+len).text());
+    if(head.magic!==BK_MAGIC) throw new Error('形式が違います');
+    let off=16+len;
+    for(const f of head.files){ await assets._put(f.id,file.slice(off,off+f.size,f.type),f.type); off+=f.size; }
+    // 同じ橋がすでにあれば書き込みを合わせる（同じ書き込みは新しい方を残す）
+    let added=0, updated=0;
+    for(const [k,v] of head.docs){
+      const cur=await db.doc(k).get();
+      if(!cur.exists){ await db._put(k,v); added++; continue; }
+      if(k==='bridges/'+head.bridge) continue;   // 橋そのものの情報は手元のものを残す
+      const a=cur.data(), t1=(a&&(a.updatedAt||a.at))||'', t2=(v&&(v.updatedAt||v.at))||'';
+      if(t2>t1){ await db._put(k,v); updated++; }
+    }
+    if(head.cams){ const c=await db.doc('settings/cameras').get(); if(!c.exists||!((c.data().rows||[]).length)){ await db._put('settings/cameras',head.cams); loadCameras(); } }
+    busy(); toast(`「${head.name}」を読み込みました（追加 ${added}・更新 ${updated}）`,4000);
+  }catch(e){ busy(); toast('読み込めませんでした：'+(e&&e.message||'エラー'),5000); console.error(e); }
+}
+if(window.LOCAL_CAPS){
+  // 一覧に「読み込み」ボタン
+  const nav=$('camBtn').parentNode, ib=document.createElement('button'); ib.className='btn'; ib.id='impBtn'; ib.textContent='データ読み込み';
+  nav.insertBefore(ib,$('camBtn'));
+  const fi=document.createElement('input'); fi.type='file'; fi.style.display='none'; document.body.appendChild(fi);
+  ib.onclick=()=>{ fi.value=''; fi.click(); }; fi.onchange=()=>{ if(fi.files[0]) importBridgeFile(fi.files[0]); };
+  // 橋のメニューに「共有用に書き出す」
+  const _bm=bridgeMenu;
+  bridgeMenu=function(bid){ _bm(bid); const b=bridges.get(bid); if(!b) return; const f=document.querySelector('#sheet .sh-f'); if(!f) return;
+    const x=document.createElement('button'); x.className='btn'; x.textContent='共有用に書き出す'; x.onclick=()=>{ closeSheet(); exportBridgeFile(b); }; f.insertBefore(x,f.children[1]||null);
+    const p=document.querySelector('#sheet .sh-b'); if(p){ const n=document.createElement('p'); n.style.cssText='color:var(--muted);font-size:13px'; n.textContent='「共有用に書き出す」で作ったファイルを別のiPadで「データ読み込み」すると、損傷図・写真・書き込みを渡せます。同じ橋なら書き込みが合わさります。'; p.appendChild(n); } };
+  // オフライン用の仕組みを登録
+  if('serviceWorker' in navigator && location.protocol!=='file:'){
+    const hadCtl=!!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js').then(reg=>{ reg.update().catch(()=>{}); }).catch(e=>console.warn(e));
+    navigator.serviceWorker.addEventListener('controllerchange',()=>{
+      if(hadCtl){ toast('新しい版に更新しました。一覧に戻ったときに再読み込みしてください',6000); }
+      else toast('オフラインでも使えるようになりました',3500);
+    });
+  }
+}
+</script>
+</body>
+</html>
